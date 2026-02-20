@@ -4,7 +4,7 @@ from voidstorm_companion.config import Config, STATE_PATH
 from voidstorm_companion.lua_parser import parse_savedvariables
 from voidstorm_companion.diff_engine import DiffEngine
 from voidstorm_companion.api_client import ApiClient, AuthError
-from voidstorm_companion.auth_flow import authenticate, get_stored_token
+from voidstorm_companion.auth_flow import authenticate, get_stored_token, clear_token
 from voidstorm_companion.file_watcher import SavedVariablesWatcher
 from voidstorm_companion.tray import TrayApp
 
@@ -45,7 +45,7 @@ class App:
             if self.tray:
                 self.tray.set_status("Login failed", "#ef4444")
 
-    def _do_upload(self):
+    def _do_upload(self, _is_retry: bool = False):
         if not self.config.savedvariables_path:
             log.warning("No SavedVariables path configured")
             return
@@ -87,9 +87,17 @@ class App:
                 )
 
         except AuthError:
-            log.error("Authentication expired — please log in again")
-            if self.tray:
-                self.tray.set_status("Auth expired", "#ef4444")
+            if _is_retry:
+                log.error("Re-authentication failed — please log in manually")
+                if self.tray:
+                    self.tray.set_status("Auth failed", "#ef4444")
+                return
+            log.warning("Token expired — re-authenticating...")
+            self.client = None
+            clear_token()
+            self._do_login()
+            if self.client:
+                self._do_upload(_is_retry=True)
         except FileNotFoundError:
             log.error(f"SavedVariables not found: {self.config.savedvariables_path}")
             if self.tray:
