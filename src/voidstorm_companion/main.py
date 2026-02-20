@@ -39,11 +39,20 @@ class App:
             self.client = ApiClient(self.config.api_url, token)
             log.info("Login successful!")
             if self.tray:
+                self.tray.logged_in = True
                 self.tray.set_status("Authenticated", "#22c55e")
         else:
             log.error("Login failed or timed out")
             if self.tray:
                 self.tray.set_status("Login failed", "#ef4444")
+
+    def _do_logout(self):
+        log.info("Logging out...")
+        self.client = None
+        clear_token()
+        if self.tray:
+            self.tray.logged_in = False
+            self.tray.set_status("Logged out", "#f59e0b")
 
     def _do_upload(self, _is_retry: bool = False):
         if not self.config.savedvariables_path:
@@ -95,6 +104,8 @@ class App:
             log.warning("Token expired — re-authenticating...")
             self.client = None
             clear_token()
+            if self.tray:
+                self.tray.logged_in = False
             self._do_login()
             if self.client:
                 self._do_upload(_is_retry=True)
@@ -142,9 +153,11 @@ class App:
         self.tray = TrayApp(
             on_upload_now=self._do_upload,
             on_login=self._do_login,
+            on_logout=self._do_logout,
             on_quit=self._on_quit,
         )
 
+        self.tray.logged_in = self.client is not None
         status = "Watching" if self.watcher else "No WoW path"
         color = "#22c55e" if self.watcher else "#f59e0b"
         if not self.client:

@@ -11,11 +11,13 @@ def create_icon_image(color: str = "#7c3aed") -> Image.Image:
 
 
 class TrayApp:
-    def __init__(self, on_upload_now, on_login, on_quit):
+    def __init__(self, on_upload_now, on_login, on_logout, on_quit):
         self.on_upload_now = on_upload_now
         self.on_login = on_login
+        self.on_logout = on_logout
         self.on_quit = on_quit
         self.status = "Idle"
+        self.logged_in = False
         self.icon: pystray.Icon | None = None
 
     def _build_menu(self):
@@ -23,7 +25,16 @@ class TrayApp:
             pystray.MenuItem(lambda text: f"Status: {self.status}", None, enabled=False),
             pystray.Menu.SEPARATOR,
             pystray.MenuItem("Upload Now", lambda: self.on_upload_now()),
-            pystray.MenuItem("Login", lambda: self.on_login()),
+            pystray.MenuItem(
+                "Login",
+                lambda: self.on_login(),
+                visible=lambda item: not self.logged_in,
+            ),
+            pystray.MenuItem(
+                "Logout",
+                lambda: self.on_logout(),
+                visible=lambda item: self.logged_in,
+            ),
             pystray.Menu.SEPARATOR,
             pystray.MenuItem("Quit", lambda: self.quit()),
         )
