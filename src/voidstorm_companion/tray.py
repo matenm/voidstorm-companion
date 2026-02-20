@@ -1,13 +1,34 @@
+import os
+import sys
 import pystray
-from PIL import Image, ImageDraw
+from PIL import Image
 
 
-def create_icon_image(color: str = "#7c3aed") -> Image.Image:
-    size = 64
-    img = Image.new("RGBA", (size, size), (0, 0, 0, 0))
-    draw = ImageDraw.Draw(img)
-    draw.ellipse([4, 4, size - 4, size - 4], fill=color)
-    return img
+def _assets_dir() -> str:
+    if getattr(sys, '_MEIPASS', None):
+        return os.path.join(sys._MEIPASS, 'assets')
+    return os.path.join(os.path.dirname(__file__), '..', '..', 'assets')
+
+
+def _load_icon(name: str) -> Image.Image:
+    path = os.path.join(_assets_dir(), name)
+    return Image.open(path).resize((64, 64), Image.LANCZOS)
+
+
+ICON_ACTIVE = None
+ICON_INACTIVE = None
+
+
+def _get_icon(active: bool) -> Image.Image:
+    global ICON_ACTIVE, ICON_INACTIVE
+    if active:
+        if ICON_ACTIVE is None:
+            ICON_ACTIVE = _load_icon('icon_active.png')
+        return ICON_ACTIVE
+    else:
+        if ICON_INACTIVE is None:
+            ICON_INACTIVE = _load_icon('icon_inactive.png')
+        return ICON_INACTIVE
 
 
 class TrayApp:
@@ -39,10 +60,12 @@ class TrayApp:
             pystray.MenuItem("Quit", lambda: self.quit()),
         )
 
-    def set_status(self, status: str, color: str | None = None):
+    def set_status(self, status: str, logged_in: bool | None = None):
         self.status = status
-        if self.icon and color:
-            self.icon.icon = create_icon_image(color)
+        if logged_in is not None:
+            self.logged_in = logged_in
+        if self.icon:
+            self.icon.icon = _get_icon(self.logged_in)
 
     def quit(self):
         self.on_quit()
@@ -52,7 +75,7 @@ class TrayApp:
     def run(self):
         self.icon = pystray.Icon(
             "Voidstorm Companion",
-            icon=create_icon_image(),
+            icon=_get_icon(self.logged_in),
             title="Voidstorm Companion",
             menu=self._build_menu(),
         )

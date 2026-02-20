@@ -4,7 +4,7 @@ a = Analysis(
     ['src/voidstorm_companion/main.py'],
     pathex=[],
     binaries=[],
-    datas=[],
+    datas=[('assets', 'assets')],
     hiddenimports=[
         'pystray._win32',
         'keyring.backends.Windows',
@@ -34,5 +34,5 @@ exe = EXE(
     console=False,
     disable_windowed_traceback=False,
     argv_emulation=False,
-    icon=None,
+    icon='assets/app.ico',
 )

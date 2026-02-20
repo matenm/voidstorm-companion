@@ -1,4 +1,5 @@
 import logging
+import threading
 
 from voidstorm_companion.config import Config, STATE_PATH
 from voidstorm_companion.lua_parser import parse_savedvariables
@@ -31,28 +32,29 @@ class App:
         return False
 
     def _do_login(self):
+        threading.Thread(target=self._login_worker, daemon=True).start()
+
+    def _login_worker(self):
         log.info("Starting Battle.net login flow...")
         if self.tray:
-            self.tray.set_status("Logging in...", "#f59e0b")
+            self.tray.set_status("Logging in...")
         token = authenticate(self.config.api_url)
         if token:
             self.client = ApiClient(self.config.api_url, token)
             log.info("Login successful!")
             if self.tray:
-                self.tray.logged_in = True
-                self.tray.set_status("Authenticated", "#22c55e")
+                self.tray.set_status("Authenticated", logged_in=True)
         else:
             log.error("Login failed or timed out")
             if self.tray:
-                self.tray.set_status("Login failed", "#ef4444")
+                self.tray.set_status("Login failed", logged_in=False)
 
     def _do_logout(self):
         log.info("Logging out...")
         self.client = None
         clear_token()
         if self.tray:
-            self.tray.logged_in = False
-            self.tray.set_status("Logged out", "#f59e0b")
+            self.tray.set_status("Logged out", logged_in=False)
 
     def _do_upload(self, _is_retry: bool = False):
         if not self.config.savedvariables_path:
@@ -66,7 +68,7 @@ class App:
 
         try:
             if self.tray:
-                self.tray.set_status("Parsing...", "#3b82f6")
+                self.tray.set_status("Parsing...")
 
             sessions = parse_savedvariables(self.config.savedvariables_path)
             new_sessions = self.diff.filter_new(sessions)
@@ -74,12 +76,12 @@ class App:
             if not new_sessions:
                 log.info("No new sessions to upload")
                 if self.tray:
-                    self.tray.set_status("Up to date", "#22c55e")
+                    self.tray.set_status("Up to date")
                 return
 
             log.info(f"Uploading {len(new_sessions)} new session(s)...")
             if self.tray:
-                self.tray.set_status(f"Uploading {len(new_sessions)}...", "#3b82f6")
+                self.tray.set_status(f"Uploading {len(new_sessions)}...")
 
             result = self.client.upload(new_sessions)
 
@@ -91,32 +93,30 @@ class App:
                 f"{result.get('skipped', 0)} skipped"
             )
             if self.tray:
-                self.tray.set_status(
-                    f"Uploaded {result.get('imported', 0)}", "#22c55e"
-                )
+                self.tray.set_status(f"Uploaded {result.get('imported', 0)}")
 
         except AuthError:
             if _is_retry:
                 log.error("Re-authentication failed — please log in manually")
                 if self.tray:
-                    self.tray.set_status("Auth failed", "#ef4444")
+                    self.tray.set_status("Auth failed", logged_in=False)
                 return
             log.warning("Token expired — re-authenticating...")
             self.client = None
             clear_token()
             if self.tray:
-                self.tray.logged_in = False
+                self.tray.set_status("Re-authenticating...", logged_in=False)
             self._do_login()
             if self.client:
                 self._do_upload(_is_retry=True)
         except FileNotFoundError:
             log.error(f"SavedVariables not found: {self.config.savedvariables_path}")
             if self.tray:
-                self.tray.set_status("File not found", "#ef4444")
+                self.tray.set_status("File not found")
         except Exception as e:
             log.error(f"Upload error: {e}")
             if self.tray:
-                self.tray.set_status("Error", "#ef4444")
+                self.tray.set_status("Error")
 
     def _on_file_change(self, filepath: str):
         log.info(f"File change detected: {filepath}")
@@ -157,13 +157,13 @@ class App:
             on_quit=self._on_quit,
         )
 
-        self.tray.logged_in = self.client is not None
-        status = "Watching" if self.watcher else "No WoW path"
-        color = "#22c55e" if self.watcher else "#f59e0b"
-        if not self.client:
-            status = "Not logged in"
-            color = "#f59e0b"
-        self.tray.set_status(status, color)
+        is_authed = self.client is not None
+        if is_authed and self.watcher:
+            self.tray.set_status("Watching", logged_in=True)
+        elif is_authed:
+            self.tray.set_status("No WoW path", logged_in=True)
+        else:
+            self.tray.set_status("Not logged in", logged_in=False)
 
         self.tray.run()
 

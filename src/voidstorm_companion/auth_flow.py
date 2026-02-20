@@ -46,9 +46,26 @@ def authenticate(api_url: str, timeout: int = 120) -> str | None:
                     self.send_header("Content-Type", "text/html")
                     self.end_headers()
                     self.wfile.write(
-                        b"<html><body><h2>Authenticated!</h2>"
+                        b"<!DOCTYPE html><html><head><meta charset='utf-8'>"
+                        b"<title>Voidstorm Companion</title>"
+                        b"<script>history.replaceState(null,'','/');</script>"
+                        b"<style>"
+                        b"body{margin:0;min-height:100vh;display:flex;align-items:center;"
+                        b"justify-content:center;background:#0a0a1a;color:#e2e8f0;"
+                        b"font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;}"
+                        b".card{text-align:center;padding:3rem;border-radius:1rem;"
+                        b"background:linear-gradient(135deg,#1a1a2e,#16213e);"
+                        b"border:1px solid rgba(124,58,237,0.3);max-width:400px;}"
+                        b"h2{color:#a78bfa;margin:0 0 0.5rem;font-size:1.5rem;}"
+                        b"p{color:#94a3b8;margin:0;font-size:0.95rem;}"
+                        b".hint{color:#64748b;margin-top:1rem;font-size:0.8rem;}"
+                        b".dot{width:12px;height:12px;background:#22c55e;border-radius:50%;"
+                        b"display:inline-block;margin-right:8px;}"
+                        b"</style></head><body><div class='card'>"
+                        b"<h2><span class='dot'></span>Authenticated</h2>"
                         b"<p>You can close this tab and return to Voidstorm Companion.</p>"
-                        b"</body></html>"
+                        b"<p class='hint'>This is your local Voidstorm Companion app.</p>"
+                        b"</div></body></html>"
                     )
                 else:
                     self.send_response(400)
