@@ -1,0 +1,7 @@
+watchdog>=4.0.0
+slpp>=1.2.3
+requests>=2.31.0
+pystray>=0.19.5
+Pillow>=10.0.0
+keyring>=25.0.0
+pytest>=8.0.0
