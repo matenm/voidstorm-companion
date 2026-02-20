@@ -1,6 +1,7 @@
 import webbrowser
+import secrets
 from http.server import HTTPServer, BaseHTTPRequestHandler
-from urllib.parse import urlparse, parse_qs
+from urllib.parse import urlparse, parse_qs, urlencode
 import keyring
 
 SERVICE_NAME = "voidstorm-companion"
@@ -25,6 +26,7 @@ def clear_token():
 
 def authenticate(api_url: str, timeout: int = 120) -> str | None:
     token_result: list[str | None] = [None]
+    expected_state = secrets.token_urlsafe(32)
 
     class CallbackHandler(BaseHTTPRequestHandler):
         def do_GET(self):
@@ -32,7 +34,12 @@ def authenticate(api_url: str, timeout: int = 120) -> str | None:
             if parsed.path == "/callback":
                 params = parse_qs(parsed.query)
                 token = params.get("token", [None])[0]
-                if token:
+                state = params.get("state", [None])[0]
+                if state != expected_state:
+                    self.send_response(403)
+                    self.end_headers()
+                    self.wfile.write(b"Invalid state parameter")
+                elif token:
                     token_result[0] = token
                     store_token(token)
                     self.send_response(200)
@@ -58,7 +65,8 @@ def authenticate(api_url: str, timeout: int = 120) -> str | None:
     server.timeout = timeout
 
     redirect_url = f"http://localhost:{LOCAL_PORT}/callback"
-    auth_url = f"{api_url}/api/companion/auth?redirect={redirect_url}"
+    params = urlencode({"redirect": redirect_url, "state": expected_state})
+    auth_url = f"{api_url}/api/companion/auth?{params}"
     webbrowser.open(auth_url)
 
     server.handle_request()
