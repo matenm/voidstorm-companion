@@ -49,6 +49,8 @@ class ApiClient:
 
     def upload(self, sessions: list[dict]) -> dict:
         payload = self.prepare_payload(sessions)
+        if not payload["sessions"]:
+            return {"imported": 0, "skipped": 0}
         resp = requests.post(
             f"{self.api_url}/api/gambling/upload",
             json=payload,
