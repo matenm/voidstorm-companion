@@ -1,7 +1,15 @@
 import os
+import logging
 import threading
 from watchdog.observers import Observer
-from watchdog.events import FileSystemEventHandler, FileModifiedEvent
+from watchdog.events import (
+    FileSystemEventHandler,
+    FileModifiedEvent,
+    FileMovedEvent,
+    FileCreatedEvent,
+)
+
+log = logging.getLogger("voidstorm-companion")
 
 
 class SavedVariablesWatcher:
@@ -17,20 +25,26 @@ class SavedVariablesWatcher:
     def _handle_event(self):
         self.on_change(self.filepath)
 
-    def _on_modified(self, event):
-        if not isinstance(event, FileModifiedEvent):
-            return
-        if os.path.basename(event.src_path) != self.filename:
-            return
+    def _schedule_debounce(self):
         if self._debounce_timer:
             self._debounce_timer.cancel()
         self._debounce_timer = threading.Timer(self.debounce_sec, self._handle_event)
         self._debounce_timer.daemon = True
         self._debounce_timer.start()
 
+    def _on_any_event(self, event):
+        if isinstance(event, FileMovedEvent):
+            if os.path.basename(event.dest_path) == self.filename:
+                log.debug(f"File renamed to {self.filename}")
+                self._schedule_debounce()
+        elif isinstance(event, (FileModifiedEvent, FileCreatedEvent)):
+            if os.path.basename(event.src_path) == self.filename:
+                log.debug(f"File modified/created: {self.filename}")
+                self._schedule_debounce()
+
     def start(self):
         handler = FileSystemEventHandler()
-        handler.on_modified = self._on_modified
+        handler.on_any_event = self._on_any_event
         self._observer = Observer()
         self._observer.schedule(handler, self.directory, recursive=False)
         self._observer.daemon = True
