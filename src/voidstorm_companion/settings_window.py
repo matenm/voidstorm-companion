@@ -30,7 +30,7 @@ def open_settings(config: Config, parent: tk.Tk):
     win.configure(bg=BG)
     win.resizable(False, False)
 
-    w, h = 400, 520
+    w, h = 400, 660
     sx = (win.winfo_screenwidth() - w) // 2
     sy = (win.winfo_screenheight() - h) // 2
     win.geometry(f"{w}x{h}+{sx}+{sy}")
@@ -45,11 +45,15 @@ def open_settings(config: Config, parent: tk.Tk):
     except tk.TclError:
         pass
 
+    win.lift()
+    win.focus_force()
+
     header = tk.Label(win, text="Settings", font=("Segoe UI", 14, "bold"), bg=BG, fg=FG)
     header.pack(pady=(16, 12))
 
     autostart_var = tk.BooleanVar(value=get_autostart())
     minimized_var = tk.BooleanVar(value=config.start_minimized)
+    auto_upload_var = tk.BooleanVar(value=config.auto_upload)
 
     cb_frame = tk.Frame(win, bg=BG)
     cb_frame.pack(fill="x", padx=24)
@@ -66,17 +70,23 @@ def open_settings(config: Config, parent: tk.Tk):
         font=("Segoe UI", 10),
     ).pack(anchor="w", pady=2)
 
+    tk.Checkbutton(
+        cb_frame, text="Auto-upload on file change", variable=auto_upload_var,
+        bg=BG, fg=FG, selectcolor="#313244", activebackground=BG, activeforeground=FG,
+        font=("Segoe UI", 10),
+    ).pack(anchor="w", pady=2)
+
     acct_label = tk.Label(
         win, text="WoW Accounts", font=("Segoe UI", 11, "bold"), bg=BG, fg=FG,
     )
     acct_label.pack(pady=(12, 2), anchor="w", padx=24)
 
     acct_frame = tk.Frame(win, bg=BG)
-    acct_frame.pack(fill="both", expand=True, padx=24)
+    acct_frame.pack(fill="x", padx=24)
 
     acct_hint = tk.Label(
         acct_frame,
-        text="Use Detect to find accounts automatically, or Browse to select a VoidstormGamble.lua file from your WTF folder.",
+        text="Use Detect to find accounts automatically, or Browse to select a VoidstormGamba.lua file from your WTF folder.",
         font=("Segoe UI", 8), bg=BG, fg="#6c7086", justify="left", wraplength=352, anchor="w",
     )
     acct_hint.pack(fill="x", pady=(0, 6))
@@ -85,9 +95,9 @@ def open_settings(config: Config, parent: tk.Tk):
 
     acct_listbox = tk.Listbox(
         acct_frame, bg=SURFACE, fg=FG, selectbackground=ACCENT, selectforeground=BG,
-        font=("Segoe UI", 10), relief="flat", highlightthickness=0,
+        font=("Segoe UI", 10), relief="flat", highlightthickness=0, height=6,
     )
-    acct_listbox.pack(fill="both", expand=True, pady=(0, 6))
+    acct_listbox.pack(fill="x", pady=(0, 6))
 
     for p in paths:
         acct_listbox.insert(tk.END, _display_name(p))
@@ -104,10 +114,13 @@ def open_settings(config: Config, parent: tk.Tk):
 
     def on_detect():
         found = detect_savedvariables()
+        existing_accounts = {os.path.dirname(os.path.dirname(p)) for p in paths}
         new_count = 0
         for p in found:
-            if p not in paths:
+            account_dir = os.path.dirname(os.path.dirname(p))
+            if account_dir not in existing_accounts:
                 paths.append(p)
+                existing_accounts.add(account_dir)
                 new_count += 1
         _refresh_list()
         if new_count:
@@ -158,6 +171,7 @@ def open_settings(config: Config, parent: tk.Tk):
     def on_save():
         config.start_with_windows = autostart_var.get()
         config.start_minimized = minimized_var.get()
+        config.auto_upload = auto_upload_var.get()
         config.savedvariables_paths = list(paths)
         config.save()
         set_autostart(config.start_with_windows, config.start_minimized)

@@ -53,7 +53,7 @@ def test_parse_nonexistent_file():
 
 def test_parse_empty_sessions():
     with tempfile.NamedTemporaryFile(mode="w", suffix=".lua", delete=False) as f:
-        f.write('VoidstormGambleDB = {\n["sessions"] = {},\n["settings"] = {},\n}')
+        f.write('VoidstormGambaDB = {\n["sessions"] = {},\n["settings"] = {},\n}')
         f.flush()
         sessions = parse_savedvariables(f.name)
         assert sessions == []

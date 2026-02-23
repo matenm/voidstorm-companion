@@ -15,18 +15,21 @@ STATE_PATH = os.path.join(CONFIG_DIR, "uploaded.json")
 STATS_PATH = os.path.join(CONFIG_DIR, "stats.json")
 
 
+_SV_NAME = "VoidstormGamba.lua"
+
+
 def _default_wow_patterns() -> list[str]:
     if platform.system() == "Windows":
-        return [
-            os.path.join(
-                os.environ.get("PROGRAMFILES(X86)", r"C:\Program Files (x86)"),
-                r"World of Warcraft\_retail_\WTF\Account\*\SavedVariables\VoidstormGamble.lua",
-            ),
-            r"D:\Games\World of Warcraft\_retail_\WTF\Account\*\SavedVariables\VoidstormGamble.lua",
-        ]
+        patterns = [os.path.join(
+            os.environ.get("PROGRAMFILES(X86)", r"C:\Program Files (x86)"),
+            rf"World of Warcraft\_retail_\WTF\Account\*\SavedVariables\{_SV_NAME}",
+        )]
+        for letter in "CDEFGH":
+            patterns.append(rf"{letter}:\Games\World of Warcraft\_retail_\WTF\Account\*\SavedVariables\{_SV_NAME}")
+        return patterns
     else:
         return [
-            "/Applications/World of Warcraft/_retail_/WTF/Account/*/SavedVariables/VoidstormGamble.lua",
+            f"/Applications/World of Warcraft/_retail_/WTF/Account/*/SavedVariables/{_SV_NAME}",
         ]
 
 
@@ -35,6 +38,18 @@ def detect_savedvariables() -> list[str]:
     for pattern in _default_wow_patterns():
         found.extend(glob.glob(pattern))
     return sorted(set(found))
+
+
+def migrate_paths(paths: list[str]) -> list[str]:
+    migrated = []
+    for p in paths:
+        if p.endswith("VoidstormGamble.lua"):
+            new_p = p.replace("VoidstormGamble.lua", _SV_NAME)
+            if os.path.exists(new_p):
+                p = new_p
+        if p not in migrated:
+            migrated.append(p)
+    return migrated
 
 
 _AUTOSTART_KEY = r"Software\Microsoft\Windows\CurrentVersion\Run"
@@ -83,6 +98,7 @@ class Config:
         self.savedvariables_paths: list[str] = []
         self.start_with_windows: bool = True
         self.start_minimized: bool = True
+        self.auto_upload: bool = True
         self.load()
 
     @property
@@ -103,13 +119,14 @@ class Config:
                     data = json.load(f)
                 self.api_url = data.get("api_url", DEFAULT_API_URL)
                 if "savedvariables_paths" in data:
-                    self.savedvariables_paths = data["savedvariables_paths"]
+                    self.savedvariables_paths = migrate_paths(data["savedvariables_paths"])
                 elif "savedvariables_path" in data and data["savedvariables_path"]:
-                    self.savedvariables_paths = [data["savedvariables_path"]]
+                    self.savedvariables_paths = migrate_paths([data["savedvariables_path"]])
                 else:
                     self.savedvariables_paths = []
                 self.start_with_windows = data.get("start_with_windows", True)
                 self.start_minimized = data.get("start_minimized", True)
+                self.auto_upload = data.get("auto_upload", True)
             except (json.JSONDecodeError, OSError):
                 pass
 
@@ -124,6 +141,7 @@ class Config:
                     "savedvariables_paths": self.savedvariables_paths,
                     "start_with_windows": self.start_with_windows,
                     "start_minimized": self.start_minimized,
+                    "auto_upload": self.auto_upload,
                 }, f, indent=2)
             os.replace(tmp_path, CONFIG_PATH)
         except BaseException:

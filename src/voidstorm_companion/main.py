@@ -161,6 +161,9 @@ class App:
 
     def _on_file_change(self, filepath: str):
         log.info(f"File change detected: {filepath}")
+        if not self.config.auto_upload:
+            log.info("Auto-upload disabled, skipping")
+            return
         threading.Thread(target=self._do_upload, args=(filepath,), daemon=True).start()
 
     def _do_settings(self):

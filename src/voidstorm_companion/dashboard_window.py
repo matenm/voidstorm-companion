@@ -3,7 +3,7 @@ from datetime import datetime, timezone
 
 from voidstorm_companion.lua_parser import parse_savedvariables
 from voidstorm_companion.stats_store import StatsStore
-from voidstorm_companion.theme import BG, FG, ACCENT, BTN_BG, BTN_HOVER, SURFACE, GREEN, app_icon_path
+from voidstorm_companion.theme import BG, FG, ACCENT, BTN_BG, BTN_HOVER, SURFACE, GREEN, RED, app_icon_path
 
 
 def _relative_time(ts: int) -> str:
@@ -22,6 +22,8 @@ def _relative_time(ts: int) -> str:
 
 
 def _format_gold(amount: int) -> str:
+    if amount < 0:
+        return f"-{abs(amount):,}g"
     return f"{amount:,}g"
 
 
@@ -31,7 +33,7 @@ def open_dashboard(stats: StatsStore, sv_paths: list[str], parent: tk.Tk):
     win.configure(bg=BG)
     win.resizable(False, False)
 
-    w, h = 520, 520
+    w, h = 580, 860
     sx = (win.winfo_screenwidth() - w) // 2
     sy = (win.winfo_screenheight() - h) // 2
     win.geometry(f"{w}x{h}+{sx}+{sy}")
@@ -40,6 +42,9 @@ def open_dashboard(stats: StatsStore, sv_paths: list[str], parent: tk.Tk):
         win.iconbitmap(app_icon_path())
     except tk.TclError:
         pass
+
+    win.lift()
+    win.focus_force()
 
     def on_close():
         canvas.unbind_all("<MouseWheel>")
@@ -65,6 +70,25 @@ def open_dashboard(stats: StatsStore, sv_paths: list[str], parent: tk.Tk):
     tk.Label(left_col, text="Gold Wagered", font=("Segoe UI", 8), bg=SURFACE, fg=ACCENT).pack(anchor="w", pady=(8, 0))
     tk.Label(left_col, text=_format_gold(stats.total_gold_wagered), font=("Segoe UI", 16, "bold"), bg=SURFACE, fg=FG).pack(anchor="w")
 
+    all_players = set(stats.gold_won.keys()) | set(stats.gold_lost.keys())
+    net = {p: stats.gold_won.get(p, 0) - stats.gold_lost.get(p, 0) for p in all_players}
+
+    tk.Label(left_col, text="Biggest Winners", font=("Segoe UI", 8), bg=SURFACE, fg=ACCENT).pack(anchor="w", pady=(8, 0))
+    winners = sorted(((p, n) for p, n in net.items() if n > 0), key=lambda x: -x[1])[:3]
+    if winners:
+        winner_lines = [f"{name} (+{_format_gold(amount)})" for name, amount in winners]
+        tk.Label(left_col, text="\n".join(winner_lines), font=("Segoe UI", 10), bg=SURFACE, fg=GREEN, justify="left").pack(anchor="w")
+    else:
+        tk.Label(left_col, text="None yet", font=("Segoe UI", 10), bg=SURFACE, fg=FG).pack(anchor="w")
+
+    tk.Label(left_col, text="Biggest Losers", font=("Segoe UI", 8), bg=SURFACE, fg=ACCENT).pack(anchor="w", pady=(8, 0))
+    losers = sorted(((p, n) for p, n in net.items() if n < 0), key=lambda x: x[1])[:3]
+    if losers:
+        loser_lines = [f"{name} ({_format_gold(amount)})" for name, amount in losers]
+        tk.Label(left_col, text="\n".join(loser_lines), font=("Segoe UI", 10), bg=SURFACE, fg=RED, justify="left").pack(anchor="w")
+    else:
+        tk.Label(left_col, text="None yet", font=("Segoe UI", 10), bg=SURFACE, fg=FG).pack(anchor="w")
+
     tk.Label(right_col, text="Modes", font=("Segoe UI", 8), bg=SURFACE, fg=ACCENT).pack(anchor="w")
     if stats.modes:
         mode_lines = [f"{count} {mode.capitalize()}" for mode, count in sorted(stats.modes.items(), key=lambda x: -x[1])]
@@ -72,10 +96,10 @@ def open_dashboard(stats: StatsStore, sv_paths: list[str], parent: tk.Tk):
     else:
         tk.Label(right_col, text="None yet", font=("Segoe UI", 10), bg=SURFACE, fg=FG).pack(anchor="w")
 
-    tk.Label(right_col, text="Top Players", font=("Segoe UI", 8), bg=SURFACE, fg=ACCENT).pack(anchor="w", pady=(8, 0))
+    tk.Label(right_col, text="Most Active", font=("Segoe UI", 8), bg=SURFACE, fg=ACCENT).pack(anchor="w", pady=(8, 0))
     if stats.players:
-        top = sorted(stats.players.items(), key=lambda x: -x[1])[:3]
-        player_lines = [f"{name} ({count})" for name, count in top]
+        top = sorted(stats.players.items(), key=lambda x: -x[1])[:10]
+        player_lines = [f"{name} ({count} rounds)" for name, count in top]
         tk.Label(right_col, text="\n".join(player_lines), font=("Segoe UI", 10), bg=SURFACE, fg=FG, justify="left").pack(anchor="w")
     else:
         tk.Label(right_col, text="None yet", font=("Segoe UI", 10), bg=SURFACE, fg=FG).pack(anchor="w")
@@ -90,11 +114,12 @@ def open_dashboard(stats: StatsStore, sv_paths: list[str], parent: tk.Tk):
     inner = tk.Frame(canvas, bg=SURFACE)
 
     inner.bind("<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
-    canvas.create_window((0, 0), window=inner, anchor="nw")
+    canvas_window = canvas.create_window((0, 0), window=inner, anchor="nw")
     canvas.configure(yscrollcommand=scrollbar.set)
+    canvas.bind("<Configure>", lambda e: canvas.itemconfig(canvas_window, width=e.width))
 
-    canvas.pack(side="left", fill="both", expand=True)
     scrollbar.pack(side="right", fill="y")
+    canvas.pack(side="left", fill="both", expand=True)
 
     def _on_mousewheel(event):
         canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
@@ -120,7 +145,7 @@ def open_dashboard(stats: StatsStore, sv_paths: list[str], parent: tk.Tk):
             row.pack(fill="x", padx=4, pady=1)
 
             mode = session.get("mode", "?")
-            wager = _format_gold(int(session.get("wager", 0)))
+            wager = _format_gold(min(int(session.get("wager", 0)), 1_000_000))
             ts = _relative_time(int(session.get("startedAt", 0)))
 
             summary = ""

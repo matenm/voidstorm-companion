@@ -40,6 +40,9 @@ def open_history(history: UploadHistory, parent: tk.Tk):
     except tk.TclError:
         pass
 
+    win.lift()
+    win.focus_force()
+
     header = tk.Label(win, text="Upload History", font=("Segoe UI", 14, "bold"), bg=BG, fg=FG)
     header.pack(pady=(16, 4))
 

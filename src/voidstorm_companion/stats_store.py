@@ -3,6 +3,7 @@ import os
 import threading
 
 MAX_SEEN_IDS = 2000
+MAX_WAGER = 1_000_000
 
 
 class StatsStore:
@@ -12,6 +13,8 @@ class StatsStore:
         self.total_gold_wagered: int = 0
         self.modes: dict[str, int] = {}
         self.players: dict[str, int] = {}
+        self.gold_won: dict[str, int] = {}
+        self.gold_lost: dict[str, int] = {}
         self._seen_ids: dict[str, None] = {}
         self._lock = threading.Lock()
         self._load()
@@ -25,6 +28,8 @@ class StatsStore:
                 self.total_gold_wagered = data.get("total_gold_wagered", 0)
                 self.modes = data.get("modes", {})
                 self.players = data.get("players", {})
+                self.gold_won = data.get("gold_won", {})
+                self.gold_lost = data.get("gold_lost", {})
                 self._seen_ids = dict.fromkeys(data.get("session_ids_seen", []))
             except (json.JSONDecodeError, OSError):
                 pass
@@ -41,6 +46,8 @@ class StatsStore:
                     "total_gold_wagered": self.total_gold_wagered,
                     "modes": self.modes,
                     "players": self.players,
+                    "gold_won": self.gold_won,
+                    "gold_lost": self.gold_lost,
                     "session_ids_seen": list(self._seen_ids.keys())[-MAX_SEEN_IDS:],
                 }, f, indent=2)
             os.replace(tmp_path, self.stats_path)
@@ -59,7 +66,10 @@ class StatsStore:
                     continue
                 self._seen_ids[sid] = None
                 self.total_sessions += 1
-                self.total_gold_wagered += int(s.get("wager", 0))
+                wager = int(s.get("wager", 0))
+                if wager > MAX_WAGER:
+                    wager = MAX_WAGER
+                self.total_gold_wagered += wager
                 mode = s.get("mode", "UNKNOWN")
                 self.modes[mode] = self.modes.get(mode, 0) + 1
                 for r in s.get("rounds", []):
@@ -67,6 +77,14 @@ class StatsStore:
                         name = p.get("name")
                         if name:
                             self.players[name] = self.players.get(name, 0) + 1
+                    results = r.get("results", {})
+                    winner = results.get("winner")
+                    loser = results.get("loser")
+                    amount = min(int(results.get("amount", 0)), MAX_WAGER)
+                    if winner and amount:
+                        self.gold_won[winner] = self.gold_won.get(winner, 0) + amount
+                    if loser and amount:
+                        self.gold_lost[loser] = self.gold_lost.get(loser, 0) + amount
             if self._seen_ids:
                 if len(self._seen_ids) > MAX_SEEN_IDS:
                     keys = list(self._seen_ids.keys())

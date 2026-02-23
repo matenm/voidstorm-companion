@@ -1,4 +1,4 @@
-VoidstormGambleDB = {
+VoidstormGambaDB = {
 	["sessions"] = {
 		{
 			["id"] = "1740934800-5432",

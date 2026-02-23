@@ -79,6 +79,7 @@ class TrayApp:
             pystray.MenuItem(
                 "Dashboard",
                 lambda: self.on_dashboard() if self.on_dashboard else None,
+                default=True,
             ),
             pystray.MenuItem(
                 "Upload History",
