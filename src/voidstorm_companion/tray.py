@@ -60,11 +60,6 @@ class TrayApp:
             ),
             pystray.MenuItem(lambda text: f"Status: {self.status}", None, enabled=False),
             pystray.Menu.SEPARATOR,
-            pystray.MenuItem("Upload Now", lambda: self.on_upload_now()),
-            pystray.MenuItem(
-                "Upload History",
-                lambda: self.on_history() if self.on_history else None,
-            ),
             pystray.MenuItem(
                 "Login",
                 lambda: self.on_login(),
@@ -74,6 +69,15 @@ class TrayApp:
                 "Logout",
                 lambda: self.on_logout(),
                 visible=lambda item: self.logged_in,
+            ),
+            pystray.MenuItem(
+                "Upload Now",
+                lambda: self.on_upload_now(),
+                enabled=lambda item: self.logged_in,
+            ),
+            pystray.MenuItem(
+                "Upload History",
+                lambda: self.on_history() if self.on_history else None,
             ),
             pystray.MenuItem(
                 "Settings",
@@ -91,13 +95,19 @@ class TrayApp:
             self.icon.icon = _get_icon(self.logged_in)
             self.icon.update_menu()
 
-    def set_tooltip(self, total_uploaded: int, last_upload: str | None):
+    def set_tooltip(self, total_uploaded: int, last_upload: str | None, watching: bool = False):
         if not self.icon:
             return
         lines = ["Voidstorm Companion"]
+        if watching:
+            lines.append("Watching for changes")
         lines.append(f"Uploaded: {total_uploaded} sessions")
         lines.append(f"Last: {last_upload}" if last_upload else "Last: Never")
         self.icon.title = "\n".join(lines)
+
+    def notify(self, title: str, message: str):
+        if self.icon:
+            self.icon.notify(message, title)
 
     def set_update(self, info: dict | None):
         self.update_info = info

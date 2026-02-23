@@ -150,6 +150,8 @@ class App:
         if self.tray:
             self.tray.set_status(f"Synced {total_imported}" if total_imported else "Up to date")
         self._update_tray_tooltip()
+        if total_imported and self.tray:
+            self.tray.notify("Voidstorm Companion", f"Uploaded {total_imported} session(s)")
 
     def _do_upload_async(self, path: str | None = None):
         threading.Thread(target=self._do_upload, args=(path,), daemon=True).start()
@@ -177,7 +179,7 @@ class App:
             last_str = dt.strftime("%m/%d %H:%M")
         else:
             last_str = None
-        self.tray.set_tooltip(total, last_str)
+        self.tray.set_tooltip(total, last_str, watching=bool(self.watchers))
 
     def _check_update(self):
         from voidstorm_companion.updater import check_for_update

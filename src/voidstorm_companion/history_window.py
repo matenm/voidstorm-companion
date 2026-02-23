@@ -1,21 +1,25 @@
 import tkinter as tk
+import webbrowser
 from datetime import datetime, timezone
 
 from voidstorm_companion.upload_history import UploadHistory
-
-BG = "#1e1e2e"
-FG = "#cdd6f4"
-ACCENT = "#89b4fa"
-BTN_BG = "#313244"
-BTN_HOVER = "#45475a"
-GREEN = "#a6e3a1"
-RED = "#f38ba8"
-SURFACE = "#181825"
+from voidstorm_companion.theme import BG, FG, ACCENT, BTN_BG, BTN_HOVER, SURFACE, GREEN, RED, app_icon_path
 
 
-def _format_time(iso: str) -> str:
+def _relative_time(iso: str) -> str:
     try:
-        return datetime.fromisoformat(iso).astimezone().strftime("%m/%d %H:%M")
+        dt = datetime.fromisoformat(iso)
+        now = datetime.now(timezone.utc)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        delta = (now - dt).total_seconds()
+        if delta < 60:
+            return "just now"
+        if delta < 3600:
+            return f"{int(delta // 60)} min ago"
+        if delta < 86400:
+            return f"{int(delta // 3600)} hr ago"
+        return dt.astimezone().strftime("%m/%d %H:%M")
     except (ValueError, OSError):
         return iso[:16]
 
@@ -32,7 +36,7 @@ def open_history(history: UploadHistory, parent: tk.Tk):
     win.geometry(f"{w}x{h}+{sx}+{sy}")
 
     try:
-        win.iconbitmap(default="")
+        win.iconbitmap(app_icon_path())
     except tk.TclError:
         pass
 
@@ -41,7 +45,7 @@ def open_history(history: UploadHistory, parent: tk.Tk):
 
     total = history.total_imported()
     last = history.last_upload_time()
-    last_str = _format_time(last) if last else "Never"
+    last_str = _relative_time(last) if last else "Never"
     summary = tk.Label(
         win, text=f"Total uploaded: {total} sessions  |  Last: {last_str}",
         font=("Segoe UI", 9), bg=BG, fg=ACCENT,
@@ -78,8 +82,9 @@ def open_history(history: UploadHistory, parent: tk.Tk):
     if not entries:
         tk.Label(inner, text="No uploads yet", font=("Consolas", 10), bg=SURFACE, fg=FG).pack(pady=20)
     else:
-        for entry in entries:
-            ts = _format_time(entry["timestamp"])
+        for i, entry in enumerate(entries):
+            row_bg = SURFACE if i % 2 == 0 else BG
+            ts = _relative_time(entry["timestamp"])
             error = entry.get("error")
             if error:
                 err_short = error[:60] + "..." if len(error) > 60 else error
@@ -91,14 +96,23 @@ def open_history(history: UploadHistory, parent: tk.Tk):
                 text = f"{ts}  +{imported} imported, {skipped} skipped"
                 color = GREEN
             tk.Label(
-                inner, text=text, font=("Consolas", 9), bg=SURFACE, fg=color, anchor="w",
+                inner, text=text, font=("Consolas", 9), bg=row_bg, fg=color, anchor="w",
             ).pack(fill="x", padx=8, pady=1)
 
     btn_frame = tk.Frame(win, bg=BG)
     btn_frame.pack(pady=(0, 12))
 
+    def _open_website():
+        webbrowser.open("https://voidstorm.cc")
+
+    tk.Button(
+        btn_frame, text="View on Voidstorm.cc", command=_open_website, width=18,
+        bg=BTN_BG, fg=ACCENT, activebackground=BTN_HOVER, activeforeground=ACCENT,
+        font=("Segoe UI", 10), relief="flat", cursor="hand2",
+    ).pack(side="left", padx=6)
+
     tk.Button(
         btn_frame, text="Close", command=on_close, width=10,
         bg=BTN_BG, fg=FG, activebackground=BTN_HOVER, activeforeground=FG,
         font=("Segoe UI", 10), relief="flat", cursor="hand2",
-    ).pack()
+    ).pack(side="left", padx=6)

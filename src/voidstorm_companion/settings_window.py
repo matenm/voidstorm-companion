@@ -1,7 +1,11 @@
 import os
 import tkinter as tk
+from tkinter import filedialog
 
 from voidstorm_companion.config import Config, get_autostart, set_autostart, detect_savedvariables
+from voidstorm_companion.theme import BG, FG, ACCENT, BTN_BG, BTN_HOVER, SURFACE, app_icon_path
+
+WARNING = "\u26a0 "
 
 
 def _account_name(path: str) -> str:
@@ -13,12 +17,11 @@ def _account_name(path: str) -> str:
         return path
 
 
-BG = "#1e1e2e"
-FG = "#cdd6f4"
-ACCENT = "#89b4fa"
-BTN_BG = "#313244"
-BTN_HOVER = "#45475a"
-SURFACE = "#181825"
+def _display_name(p: str) -> str:
+    name = _account_name(p)
+    if not os.path.exists(p):
+        return WARNING + name
+    return name
 
 
 def open_settings(config: Config, parent: tk.Tk):
@@ -27,7 +30,7 @@ def open_settings(config: Config, parent: tk.Tk):
     win.configure(bg=BG)
     win.resizable(False, False)
 
-    w, h = 400, 400
+    w, h = 400, 440
     sx = (win.winfo_screenwidth() - w) // 2
     sy = (win.winfo_screenheight() - h) // 2
     win.geometry(f"{w}x{h}+{sx}+{sy}")
@@ -38,7 +41,7 @@ def open_settings(config: Config, parent: tk.Tk):
     win.protocol("WM_DELETE_WINDOW", on_cancel)
 
     try:
-        win.iconbitmap(default="")
+        win.iconbitmap(app_icon_path())
     except tk.TclError:
         pass
 
@@ -80,23 +83,47 @@ def open_settings(config: Config, parent: tk.Tk):
     acct_listbox.pack(fill="both", expand=True, pady=(0, 6))
 
     for p in paths:
-        acct_listbox.insert(tk.END, _account_name(p))
+        acct_listbox.insert(tk.END, _display_name(p))
 
     acct_btn_frame = tk.Frame(acct_frame, bg=BG)
     acct_btn_frame.pack(fill="x")
 
+    def _refresh_list():
+        acct_listbox.delete(0, tk.END)
+        for p in paths:
+            acct_listbox.insert(tk.END, _display_name(p))
+
+    feedback_label = tk.Label(acct_btn_frame, text="", font=("Segoe UI", 8), bg=BG, fg=ACCENT)
+
     def on_detect():
         found = detect_savedvariables()
+        new_count = 0
         for p in found:
             if p not in paths:
                 paths.append(p)
-                acct_listbox.insert(tk.END, _account_name(p))
+                new_count += 1
+        _refresh_list()
+        if new_count:
+            feedback_label.config(text=f"Found {new_count} new")
+        else:
+            feedback_label.config(text="No new accounts")
+        win.after(3000, lambda: feedback_label.config(text=""))
 
     def on_remove():
         sel = acct_listbox.curselection()
         if sel:
             paths.pop(sel[0])
-            acct_listbox.delete(sel[0])
+            _refresh_list()
+
+    def on_browse():
+        filepath = filedialog.askopenfilename(
+            parent=win,
+            title="Select SavedVariables file",
+            filetypes=[("Lua files", "*.lua"), ("All files", "*.*")],
+        )
+        if filepath and filepath not in paths:
+            paths.append(filepath)
+            _refresh_list()
 
     tk.Button(
         acct_btn_frame, text="Detect Accounts", command=on_detect, width=14,
@@ -109,6 +136,14 @@ def open_settings(config: Config, parent: tk.Tk):
         bg=BTN_BG, fg=FG, activebackground=BTN_HOVER, activeforeground=FG,
         font=("Segoe UI", 9), relief="flat", cursor="hand2",
     ).pack(side="left")
+
+    tk.Button(
+        acct_btn_frame, text="Browse...", command=on_browse, width=8,
+        bg=BTN_BG, fg=FG, activebackground=BTN_HOVER, activeforeground=FG,
+        font=("Segoe UI", 9), relief="flat", cursor="hand2",
+    ).pack(side="left", padx=(6, 0))
+
+    feedback_label.pack(side="left", padx=(6, 0))
 
     btn_frame = tk.Frame(win, bg=BG)
     btn_frame.pack(pady=(12, 12))
