@@ -1,7 +1,7 @@
 import requests
 
 _PLAYER_FIELDS = {"name", "roll", "rolled", "realm", "guild", "guildRank"}
-_SESSION_FIELDS = {"id", "mode", "host", "wager", "channel", "startedAt", "endedAt", "rounds"}
+_SESSION_FIELDS = {"id", "mode", "host", "wager", "channel", "startedAt", "endedAt", "rounds", "signature"}
 _ROUND_FIELDS = {"number", "mode", "time", "players", "results"}
 _MAX_WAGER = 1_000_000
 

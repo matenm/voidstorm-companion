@@ -2,7 +2,7 @@ import json
 import os
 from datetime import datetime, timezone
 
-MAX_ENTRIES = 100
+MAX_ENTRIES = 50
 
 
 class UploadHistory:
