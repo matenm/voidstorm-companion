@@ -27,12 +27,14 @@ class App:
         self.watchers: dict[str, SavedVariablesWatcher] = {}
         self.tray: TrayApp | None = None
         self.client: ApiClient | None = None
+        self._client_lock = threading.Lock()
         self.window_manager = WindowManager()
 
     def _ensure_auth(self) -> bool:
         token = get_stored_token()
         if token:
-            self.client = ApiClient(self.config.api_url, token)
+            with self._client_lock:
+                self.client = ApiClient(self.config.api_url, token)
             return True
         return False
 
@@ -45,7 +47,8 @@ class App:
             self.tray.set_status("Logging in...")
         token = authenticate(self.config.api_url)
         if token:
-            self.client = ApiClient(self.config.api_url, token)
+            with self._client_lock:
+                self.client = ApiClient(self.config.api_url, token)
             log.info("Login successful!")
             if self.tray:
                 self.tray.set_status("Authenticated", logged_in=True)
@@ -56,7 +59,8 @@ class App:
 
     def _do_logout(self):
         log.info("Logging out...")
-        self.client = None
+        with self._client_lock:
+            self.client = None
         clear_token()
         if self.tray:
             self.tray.set_status("Logged out", logged_in=False)
@@ -67,10 +71,14 @@ class App:
             log.warning("No SavedVariables paths configured")
             return
 
-        if not self.client:
+        with self._client_lock:
+            client = self.client
+        if not client:
             if not self._ensure_auth():
                 log.warning("Not authenticated — skipping upload")
                 return
+            with self._client_lock:
+                client = self.client
 
         total_imported = 0
         total_skipped = 0
@@ -91,7 +99,7 @@ class App:
                 if self.tray:
                     self.tray.set_status(f"Uploading {len(new_sessions)}...")
 
-                result = self.client.upload(new_sessions)
+                result = client.upload(new_sessions)
 
                 uploaded_ids = [s["id"] for s in new_sessions]
                 self.diff.mark_uploaded(uploaded_ids)
@@ -112,13 +120,15 @@ class App:
                     self._update_tray_tooltip()
                     return
                 log.warning("Token expired — re-authenticating...")
-                self.client = None
+                with self._client_lock:
+                    self.client = None
                 clear_token()
                 if self.tray:
                     self.tray.set_status("Re-authenticating...", logged_in=False)
                 self._login_worker()
-                if self.client:
-                    self._do_upload(path=path, _is_retry=True)
+                with self._client_lock:
+                    if self.client:
+                        self._do_upload(path=path, _is_retry=True)
                 return
             except FileNotFoundError:
                 log.error(f"SavedVariables not found: {sv_path}")
