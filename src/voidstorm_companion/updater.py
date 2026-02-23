@@ -9,7 +9,11 @@ RELEASES_URL = "https://api.github.com/repos/matenm/voidstorm-companion/releases
 
 
 def _parse_version(tag: str) -> tuple[int, ...]:
-    return tuple(int(x) for x in tag.lstrip("v").split("."))
+    clean = tag.lstrip("v").split("-")[0]
+    try:
+        return tuple(int(x) for x in clean.split("."))
+    except ValueError:
+        return (0,)
 
 
 def check_for_update() -> dict | None:

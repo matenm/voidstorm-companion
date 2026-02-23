@@ -21,16 +21,18 @@ class SavedVariablesWatcher:
         self.debounce_sec = debounce_sec
         self._observer: Observer | None = None
         self._debounce_timer: threading.Timer | None = None
+        self._timer_lock = threading.Lock()
 
     def _handle_event(self):
         self.on_change(self.filepath)
 
     def _schedule_debounce(self):
-        if self._debounce_timer:
-            self._debounce_timer.cancel()
-        self._debounce_timer = threading.Timer(self.debounce_sec, self._handle_event)
-        self._debounce_timer.daemon = True
-        self._debounce_timer.start()
+        with self._timer_lock:
+            if self._debounce_timer:
+                self._debounce_timer.cancel()
+            self._debounce_timer = threading.Timer(self.debounce_sec, self._handle_event)
+            self._debounce_timer.daemon = True
+            self._debounce_timer.start()
 
     def _on_any_event(self, event):
         if isinstance(event, FileMovedEvent):
@@ -51,8 +53,9 @@ class SavedVariablesWatcher:
         self._observer.start()
 
     def stop(self):
-        if self._debounce_timer:
-            self._debounce_timer.cancel()
+        with self._timer_lock:
+            if self._debounce_timer:
+                self._debounce_timer.cancel()
         if self._observer:
             self._observer.stop()
             self._observer.join(timeout=5)
