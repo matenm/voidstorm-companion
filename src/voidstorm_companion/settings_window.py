@@ -21,8 +21,8 @@ BTN_HOVER = "#45475a"
 SURFACE = "#181825"
 
 
-def open_settings(config: Config):
-    win = tk.Tk()
+def open_settings(config: Config, parent: tk.Tk):
+    win = tk.Toplevel(parent)
     win.title("Voidstorm Companion — Settings")
     win.configure(bg=BG)
     win.resizable(False, False)
@@ -31,6 +31,11 @@ def open_settings(config: Config):
     sx = (win.winfo_screenwidth() - w) // 2
     sy = (win.winfo_screenheight() - h) // 2
     win.geometry(f"{w}x{h}+{sx}+{sy}")
+
+    def on_cancel():
+        win.destroy()
+
+    win.protocol("WM_DELETE_WINDOW", on_cancel)
 
     try:
         win.iconbitmap(default="")
@@ -116,9 +121,6 @@ def open_settings(config: Config):
         set_autostart(config.start_with_windows, config.start_minimized)
         win.destroy()
 
-    def on_cancel():
-        win.destroy()
-
     tk.Button(
         btn_frame, text="Save", command=on_save, width=10,
         bg=ACCENT, fg="#1e1e2e", activebackground="#b4d0fb", activeforeground="#1e1e2e",
@@ -130,5 +132,3 @@ def open_settings(config: Config):
         bg=BTN_BG, fg=FG, activebackground=BTN_HOVER, activeforeground=FG,
         font=("Segoe UI", 10), relief="flat", cursor="hand2",
     ).pack(side="left", padx=6)
-
-    win.mainloop()
