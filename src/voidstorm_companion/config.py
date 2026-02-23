@@ -3,7 +3,10 @@ import os
 import platform
 import glob
 import sys
-import winreg
+try:
+    import winreg
+except ImportError:
+    winreg = None
 
 DEFAULT_API_URL = "https://dev.voidstorm.cc"
 CONFIG_DIR = os.path.join(os.path.expanduser("~"), ".voidstorm-companion")
@@ -18,7 +21,6 @@ def _default_wow_patterns() -> list[str]:
                 os.environ.get("PROGRAMFILES(X86)", r"C:\Program Files (x86)"),
                 r"World of Warcraft\_retail_\WTF\Account\*\SavedVariables\VoidstormGamble.lua",
             ),
-            r"E:\Games\World of Warcraft\_retail_\WTF\Account\*\SavedVariables\VoidstormGamble.lua",
             r"D:\Games\World of Warcraft\_retail_\WTF\Account\*\SavedVariables\VoidstormGamble.lua",
         ]
     else:
@@ -39,6 +41,8 @@ _AUTOSTART_VALUE = "VoidstormCompanion"
 
 
 def get_autostart() -> bool:
+    if winreg is None:
+        return False
     try:
         key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, _AUTOSTART_KEY, 0, winreg.KEY_READ)
         winreg.QueryValueEx(key, _AUTOSTART_VALUE)
@@ -51,6 +55,8 @@ def get_autostart() -> bool:
 
 
 def set_autostart(enabled: bool, minimized: bool = True):
+    if winreg is None:
+        return
     exe = sys.executable
     value = f'"{exe}" --minimized' if minimized else f'"{exe}"'
     try:
