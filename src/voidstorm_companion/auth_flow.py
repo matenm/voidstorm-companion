@@ -1,3 +1,4 @@
+import time
 import webbrowser
 import secrets
 from http.server import HTTPServer, BaseHTTPRequestHandler
@@ -79,14 +80,17 @@ def authenticate(api_url: str, timeout: int = 120) -> str | None:
             pass
 
     server = HTTPServer(("127.0.0.1", LOCAL_PORT), CallbackHandler)
-    server.timeout = timeout
+    server.timeout = 1
 
     redirect_url = f"http://localhost:{LOCAL_PORT}/callback"
     params = urlencode({"redirect": redirect_url, "state": expected_state})
     auth_url = f"{api_url}/api/companion/auth?{params}"
     webbrowser.open(auth_url)
 
-    server.handle_request()
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline and token_result[0] is None:
+        server.handle_request()
+
     server.server_close()
 
     return token_result[0]
