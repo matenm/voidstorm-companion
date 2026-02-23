@@ -89,6 +89,7 @@ class TrayApp:
             self.logged_in = logged_in
         if self.icon:
             self.icon.icon = _get_icon(self.logged_in)
+            self.icon.update_menu()
 
     def set_tooltip(self, total_uploaded: int, last_upload: str | None):
         if not self.icon:

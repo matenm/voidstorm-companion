@@ -10,6 +10,7 @@ from voidstorm_companion.api_client import ApiClient, AuthError
 from voidstorm_companion.auth_flow import authenticate, get_stored_token, clear_token
 from voidstorm_companion.file_watcher import SavedVariablesWatcher
 from voidstorm_companion.tray import TrayApp
+from voidstorm_companion.window_manager import WindowManager
 
 logging.basicConfig(
     level=logging.INFO,
@@ -26,6 +27,7 @@ class App:
         self.watchers: dict[str, SavedVariablesWatcher] = {}
         self.tray: TrayApp | None = None
         self.client: ApiClient | None = None
+        self.window_manager = WindowManager()
 
     def _ensure_auth(self) -> bool:
         token = get_stored_token()
@@ -114,7 +116,7 @@ class App:
                 clear_token()
                 if self.tray:
                     self.tray.set_status("Re-authenticating...", logged_in=False)
-                self._do_login()
+                self._login_worker()
                 if self.client:
                     self._do_upload(path=path, _is_retry=True)
                 return
@@ -139,23 +141,18 @@ class App:
             self.tray.set_status(f"Synced {total_imported}" if total_imported else "Up to date")
         self._update_tray_tooltip()
 
+    def _do_upload_async(self, path: str | None = None):
+        threading.Thread(target=self._do_upload, args=(path,), daemon=True).start()
+
     def _on_file_change(self, filepath: str):
         log.info(f"File change detected: {filepath}")
         self._do_upload(path=filepath)
 
     def _do_settings(self):
-        threading.Thread(target=self._settings_worker, daemon=True).start()
-
-    def _settings_worker(self):
-        from voidstorm_companion.settings_window import open_settings
-        open_settings(self.config)
+        self.window_manager.open_settings(self.config)
 
     def _do_history(self):
-        threading.Thread(target=self._history_worker, daemon=True).start()
-
-    def _history_worker(self):
-        from voidstorm_companion.history_window import open_history
-        open_history(self.history)
+        self.window_manager.open_history(self.history)
 
     def _apply_autostart(self):
         set_autostart(self.config.start_with_windows, self.config.start_minimized)
@@ -182,10 +179,13 @@ class App:
     def _on_quit(self):
         for watcher in self.watchers.values():
             watcher.stop()
+        self.window_manager.stop()
         log.info("Shutting down")
 
     def run(self):
         log.info("Voidstorm Companion starting...")
+
+        self.window_manager.start()
 
         if not self.config.savedvariables_paths:
             from voidstorm_companion.config import detect_savedvariables
@@ -208,7 +208,7 @@ class App:
             log.info(f"Watching: {sv_path}")
 
         self.tray = TrayApp(
-            on_upload_now=self._do_upload,
+            on_upload_now=self._do_upload_async,
             on_login=self._do_login,
             on_logout=self._do_logout,
             on_quit=self._on_quit,
