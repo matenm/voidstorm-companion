@@ -1,5 +1,6 @@
 import json
 import os
+import threading
 from datetime import datetime, timezone
 
 MAX_ENTRIES = 50
@@ -9,6 +10,7 @@ class UploadHistory:
     def __init__(self, history_path: str):
         self.history_path = history_path
         self.entries: list[dict] = []
+        self._lock = threading.Lock()
         self._load()
 
     def _load(self):
@@ -33,17 +35,18 @@ class UploadHistory:
             raise
 
     def record(self, imported: int, skipped: int, error: str | None = None):
-        entry = {
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-            "imported": imported,
-            "skipped": skipped,
-        }
-        if error:
-            entry["error"] = error
-        self.entries.append(entry)
-        if len(self.entries) > MAX_ENTRIES:
-            self.entries = self.entries[-MAX_ENTRIES:]
-        self._save()
+        with self._lock:
+            entry = {
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "imported": imported,
+                "skipped": skipped,
+            }
+            if error:
+                entry["error"] = error
+            self.entries.append(entry)
+            if len(self.entries) > MAX_ENTRIES:
+                self.entries = self.entries[-MAX_ENTRIES:]
+            self._save()
 
     def total_imported(self) -> int:
         return sum(e.get("imported", 0) for e in self.entries)

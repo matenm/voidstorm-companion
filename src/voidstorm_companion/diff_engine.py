@@ -1,11 +1,13 @@
 import json
 import os
+import threading
 
 
 class DiffEngine:
     def __init__(self, state_path: str):
         self.state_path = state_path
         self.uploaded_ids: set[str] = set()
+        self._lock = threading.Lock()
         self._load()
 
     def _load(self):
@@ -31,8 +33,10 @@ class DiffEngine:
             raise
 
     def filter_new(self, sessions: list[dict]) -> list[dict]:
-        return [s for s in sessions if s.get("id") not in self.uploaded_ids]
+        with self._lock:
+            return [s for s in sessions if s.get("id") not in self.uploaded_ids]
 
     def mark_uploaded(self, session_ids: list[str]):
-        self.uploaded_ids.update(session_ids)
-        self._save()
+        with self._lock:
+            self.uploaded_ids.update(session_ids)
+            self._save()
