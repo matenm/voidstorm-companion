@@ -1,5 +1,6 @@
 import logging
 import threading
+import webbrowser
 from datetime import datetime, timezone
 
 from voidstorm_companion.config import Config, STATE_PATH, HISTORY_PATH, STATS_PATH, set_autostart
@@ -197,6 +198,36 @@ class App:
             log.info(f"Update available: v{info['version']}")
             self.tray.set_update(info)
 
+    def _do_update(self):
+        if not self.tray or not self.tray.update_info:
+            return
+
+        download_url = self.tray.update_info.get("download_url")
+        if not download_url:
+            self._open_release_page()
+            return
+
+        try:
+            from voidstorm_companion.updater import download_update, apply_update
+
+            self.tray.set_status("Downloading update...")
+            new_exe = download_update(download_url)
+
+            self.tray.set_status("Installing update...")
+            apply_update(new_exe)
+
+            self.tray.quit()
+        except Exception as e:
+            log.error(f"Auto-update failed: {e}")
+            self._open_release_page()
+
+    def _do_update_async(self):
+        threading.Thread(target=self._do_update, daemon=True).start()
+
+    def _open_release_page(self):
+        if self.tray and self.tray.update_info and self.tray.update_info.get("url"):
+            webbrowser.open(self.tray.update_info["url"])
+
     def _on_quit(self):
         for watcher in self.watchers.values():
             watcher.stop()
@@ -204,6 +235,9 @@ class App:
         log.info("Shutting down")
 
     def run(self):
+        from voidstorm_companion.updater import cleanup_old_update
+        cleanup_old_update()
+
         log.info("Voidstorm Companion starting...")
 
         self.window_manager.start()
@@ -236,6 +270,7 @@ class App:
             on_settings=self._do_settings,
             on_history=self._do_history,
             on_dashboard=self._do_dashboard,
+            on_update=self._do_update_async,
         )
 
         if self.client and self.watchers:
@@ -257,7 +292,18 @@ class App:
 
 
 def main():
+    import argparse
+    parser = argparse.ArgumentParser(description="Voidstorm Companion")
+    parser.add_argument("--dev", action="store_true", help="Use development API server (dev.voidstorm.cc)")
+    parser.add_argument("--minimized", action="store_true", help="Start minimized to tray")
+    args = parser.parse_args()
+
     app = App()
+
+    if args.dev:
+        from voidstorm_companion.config import DEV_API_URL
+        app.config.api_url = DEV_API_URL
+
     app.run()
 
 
