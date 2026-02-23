@@ -30,7 +30,7 @@ def open_settings(config: Config, parent: tk.Tk):
     win.configure(bg=BG)
     win.resizable(False, False)
 
-    w, h = 400, 440
+    w, h = 400, 520
     sx = (win.winfo_screenwidth() - w) // 2
     sy = (win.winfo_screenheight() - h) // 2
     win.geometry(f"{w}x{h}+{sx}+{sy}")
@@ -69,10 +69,17 @@ def open_settings(config: Config, parent: tk.Tk):
     acct_label = tk.Label(
         win, text="WoW Accounts", font=("Segoe UI", 11, "bold"), bg=BG, fg=FG,
     )
-    acct_label.pack(pady=(12, 4))
+    acct_label.pack(pady=(12, 2), anchor="w", padx=24)
 
     acct_frame = tk.Frame(win, bg=BG)
     acct_frame.pack(fill="both", expand=True, padx=24)
+
+    acct_hint = tk.Label(
+        acct_frame,
+        text="Use Detect to find accounts automatically, or Browse to select a VoidstormGamble.lua file from your WTF folder.",
+        font=("Segoe UI", 8), bg=BG, fg="#6c7086", justify="left", wraplength=352, anchor="w",
+    )
+    acct_hint.pack(fill="x", pady=(0, 6))
 
     paths = list(config.savedvariables_paths)
 
@@ -88,12 +95,12 @@ def open_settings(config: Config, parent: tk.Tk):
     acct_btn_frame = tk.Frame(acct_frame, bg=BG)
     acct_btn_frame.pack(fill="x")
 
+    feedback_label = tk.Label(acct_frame, text="", font=("Segoe UI", 8), bg=BG, fg=ACCENT, anchor="w")
+
     def _refresh_list():
         acct_listbox.delete(0, tk.END)
         for p in paths:
             acct_listbox.insert(tk.END, _display_name(p))
-
-    feedback_label = tk.Label(acct_btn_frame, text="", font=("Segoe UI", 8), bg=BG, fg=ACCENT)
 
     def on_detect():
         found = detect_savedvariables()
@@ -143,7 +150,7 @@ def open_settings(config: Config, parent: tk.Tk):
         font=("Segoe UI", 9), relief="flat", cursor="hand2",
     ).pack(side="left", padx=(6, 0))
 
-    feedback_label.pack(side="left", padx=(6, 0))
+    feedback_label.pack(fill="x", pady=(4, 0))
 
     btn_frame = tk.Frame(win, bg=BG)
     btn_frame.pack(pady=(12, 12))
@@ -157,13 +164,13 @@ def open_settings(config: Config, parent: tk.Tk):
         win.destroy()
 
     tk.Button(
-        btn_frame, text="Save", command=on_save, width=10,
+        btn_frame, text="Save", command=on_save, width=10, pady=4,
         bg=ACCENT, fg="#1e1e2e", activebackground="#b4d0fb", activeforeground="#1e1e2e",
         font=("Segoe UI", 10), relief="flat", cursor="hand2",
     ).pack(side="left", padx=6)
 
     tk.Button(
-        btn_frame, text="Cancel", command=on_cancel, width=10,
+        btn_frame, text="Cancel", command=on_cancel, width=10, pady=4,
         bg=BTN_BG, fg=FG, activebackground=BTN_HOVER, activeforeground=FG,
         font=("Segoe UI", 10), relief="flat", cursor="hand2",
     ).pack(side="left", padx=6)
