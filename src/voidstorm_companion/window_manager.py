@@ -1,5 +1,16 @@
+import ctypes
 import threading
 import tkinter as tk
+
+
+def _enable_dpi_awareness():
+    try:
+        ctypes.windll.shcore.SetProcessDpiAwareness(1)
+    except (AttributeError, OSError):
+        try:
+            ctypes.windll.user32.SetProcessDPIAware()
+        except (AttributeError, OSError):
+            pass
 
 
 class WindowManager:
@@ -14,6 +25,7 @@ class WindowManager:
         self._ready.wait(timeout=5)
 
     def _run(self):
+        _enable_dpi_awareness()
         self._root = tk.Tk()
         self._root.withdraw()
         self._ready.set()
