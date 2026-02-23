@@ -14,8 +14,10 @@ SURFACE = "#181825"
 
 
 def _format_time(iso: str) -> str:
-    dt = datetime.fromisoformat(iso).astimezone()
-    return dt.strftime("%m/%d %H:%M")
+    try:
+        return datetime.fromisoformat(iso).astimezone().strftime("%m/%d %H:%M")
+    except (ValueError, OSError):
+        return iso[:16]
 
 
 def open_history(history: UploadHistory, parent: tk.Tk):
@@ -80,7 +82,8 @@ def open_history(history: UploadHistory, parent: tk.Tk):
             ts = _format_time(entry["timestamp"])
             error = entry.get("error")
             if error:
-                text = f"{ts}  ERROR: {error}"
+                err_short = error[:60] + "..." if len(error) > 60 else error
+                text = f"{ts}  ERROR: {err_short}"
                 color = RED
             else:
                 imported = entry.get("imported", 0)
