@@ -18,8 +18,8 @@ def _format_time(iso: str) -> str:
     return dt.strftime("%m/%d %H:%M")
 
 
-def open_history(history: UploadHistory):
-    win = tk.Tk()
+def open_history(history: UploadHistory, parent: tk.Tk):
+    win = tk.Toplevel(parent)
     win.title("Voidstorm Companion — Upload History")
     win.configure(bg=BG)
     win.resizable(False, False)
@@ -63,7 +63,14 @@ def open_history(history: UploadHistory):
     def _on_mousewheel(event):
         canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
 
-    canvas.bind_all("<MouseWheel>", _on_mousewheel)
+    canvas.bind("<Enter>", lambda e: canvas.bind_all("<MouseWheel>", _on_mousewheel))
+    canvas.bind("<Leave>", lambda e: canvas.unbind_all("<MouseWheel>"))
+
+    def on_close():
+        canvas.unbind_all("<MouseWheel>")
+        win.destroy()
+
+    win.protocol("WM_DELETE_WINDOW", on_close)
 
     entries = list(reversed(history.entries))
     if not entries:
@@ -87,14 +94,8 @@ def open_history(history: UploadHistory):
     btn_frame = tk.Frame(win, bg=BG)
     btn_frame.pack(pady=(0, 12))
 
-    def on_close():
-        canvas.unbind_all("<MouseWheel>")
-        win.destroy()
-
     tk.Button(
         btn_frame, text="Close", command=on_close, width=10,
         bg=BTN_BG, fg=FG, activebackground=BTN_HOVER, activeforeground=FG,
         font=("Segoe UI", 10), relief="flat", cursor="hand2",
     ).pack()
-
-    win.mainloop()
