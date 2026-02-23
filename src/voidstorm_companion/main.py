@@ -156,7 +156,7 @@ class App:
 
     def _on_file_change(self, filepath: str):
         log.info(f"File change detected: {filepath}")
-        self._do_upload(path=filepath)
+        threading.Thread(target=self._do_upload, args=(filepath,), daemon=True).start()
 
     def _do_settings(self):
         self.window_manager.open_settings(self.config)
