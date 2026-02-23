@@ -2,11 +2,12 @@ import logging
 import threading
 from datetime import datetime, timezone
 
-from voidstorm_companion.config import Config, STATE_PATH, HISTORY_PATH, set_autostart
+from voidstorm_companion.config import Config, STATE_PATH, HISTORY_PATH, STATS_PATH, set_autostart
 from voidstorm_companion.lua_parser import parse_savedvariables
 from voidstorm_companion.diff_engine import DiffEngine
 from voidstorm_companion.upload_history import UploadHistory
 from voidstorm_companion.api_client import ApiClient, AuthError
+from voidstorm_companion.stats_store import StatsStore
 from voidstorm_companion.auth_flow import authenticate, get_stored_token, clear_token
 from voidstorm_companion.file_watcher import SavedVariablesWatcher
 from voidstorm_companion.tray import TrayApp
@@ -24,6 +25,7 @@ class App:
         self.config = Config()
         self.diff = DiffEngine(STATE_PATH)
         self.history = UploadHistory(HISTORY_PATH)
+        self.stats = StatsStore(STATS_PATH)
         self.watchers: dict[str, SavedVariablesWatcher] = {}
         self.tray: TrayApp | None = None
         self.client: ApiClient | None = None
@@ -89,6 +91,7 @@ class App:
                     self.tray.set_status("Parsing...")
 
                 sessions = parse_savedvariables(sv_path)
+                self.stats.update(sessions)
                 new_sessions = self.diff.filter_new(sessions)
 
                 if not new_sessions:
@@ -166,6 +169,9 @@ class App:
     def _do_history(self):
         self.window_manager.open_history(self.history)
 
+    def _do_dashboard(self):
+        self.window_manager.open_dashboard(self.stats, list(self.config.savedvariables_paths))
+
     def _apply_autostart(self):
         set_autostart(self.config.start_with_windows, self.config.start_minimized)
 
@@ -226,6 +232,7 @@ class App:
             on_quit=self._on_quit,
             on_settings=self._do_settings,
             on_history=self._do_history,
+            on_dashboard=self._do_dashboard,
         )
 
         if self.client and self.watchers:

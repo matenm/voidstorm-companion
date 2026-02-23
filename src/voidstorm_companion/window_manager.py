@@ -41,6 +41,11 @@ class WindowManager:
         if self._root:
             self._root.after(0, lambda: open_settings(config, self._root))
 
+    def open_dashboard(self, stats, sv_paths):
+        from voidstorm_companion.dashboard_window import open_dashboard
+        if self._root:
+            self._root.after(0, lambda: open_dashboard(stats, sv_paths, self._root))
+
     def stop(self):
         if self._root:
             self._root.after(0, self._root.quit)

@@ -12,6 +12,7 @@ DEFAULT_API_URL = "https://dev.voidstorm.cc"
 CONFIG_DIR = os.path.join(os.path.expanduser("~"), ".voidstorm-companion")
 CONFIG_PATH = os.path.join(CONFIG_DIR, "config.json")
 STATE_PATH = os.path.join(CONFIG_DIR, "uploaded.json")
+STATS_PATH = os.path.join(CONFIG_DIR, "stats.json")
 
 
 def _default_wow_patterns() -> list[str]:
