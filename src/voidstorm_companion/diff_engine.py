@@ -10,14 +10,25 @@ class DiffEngine:
 
     def _load(self):
         if os.path.exists(self.state_path):
-            with open(self.state_path, "r") as f:
-                data = json.load(f)
-                self.uploaded_ids = set(data.get("uploaded_ids", []))
+            try:
+                with open(self.state_path, "r") as f:
+                    data = json.load(f)
+                    self.uploaded_ids = set(data.get("uploaded_ids", []))
+            except (json.JSONDecodeError, OSError):
+                self.uploaded_ids = set()
 
     def _save(self):
-        os.makedirs(os.path.dirname(self.state_path) or ".", exist_ok=True)
-        with open(self.state_path, "w") as f:
-            json.dump({"uploaded_ids": sorted(self.uploaded_ids)}, f)
+        import tempfile
+        dir_ = os.path.dirname(self.state_path) or "."
+        os.makedirs(dir_, exist_ok=True)
+        fd, tmp_path = tempfile.mkstemp(dir=dir_, suffix=".tmp")
+        try:
+            with os.fdopen(fd, "w") as f:
+                json.dump({"uploaded_ids": sorted(self.uploaded_ids)}, f)
+            os.replace(tmp_path, self.state_path)
+        except BaseException:
+            os.unlink(tmp_path)
+            raise
 
     def filter_new(self, sessions: list[dict]) -> list[dict]:
         return [s for s in sessions if s.get("id") not in self.uploaded_ids]

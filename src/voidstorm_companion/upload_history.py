@@ -13,13 +13,24 @@ class UploadHistory:
 
     def _load(self):
         if os.path.exists(self.history_path):
-            with open(self.history_path, "r") as f:
-                self.entries = json.load(f)
+            try:
+                with open(self.history_path, "r") as f:
+                    self.entries = json.load(f)
+            except (json.JSONDecodeError, OSError):
+                self.entries = []
 
     def _save(self):
-        os.makedirs(os.path.dirname(self.history_path) or ".", exist_ok=True)
-        with open(self.history_path, "w") as f:
-            json.dump(self.entries, f, indent=2)
+        import tempfile
+        dir_ = os.path.dirname(self.history_path) or "."
+        os.makedirs(dir_, exist_ok=True)
+        fd, tmp_path = tempfile.mkstemp(dir=dir_, suffix=".tmp")
+        try:
+            with os.fdopen(fd, "w") as f:
+                json.dump(self.entries, f, indent=2)
+            os.replace(tmp_path, self.history_path)
+        except BaseException:
+            os.unlink(tmp_path)
+            raise
 
     def record(self, imported: int, skipped: int, error: str | None = None):
         entry = {

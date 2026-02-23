@@ -91,8 +91,9 @@ class Config:
 
     def load(self):
         if os.path.exists(CONFIG_PATH):
-            with open(CONFIG_PATH, "r") as f:
-                data = json.load(f)
+            try:
+                with open(CONFIG_PATH, "r") as f:
+                    data = json.load(f)
                 self.api_url = data.get("api_url", DEFAULT_API_URL)
                 if "savedvariables_paths" in data:
                     self.savedvariables_paths = data["savedvariables_paths"]
@@ -102,13 +103,22 @@ class Config:
                     self.savedvariables_paths = []
                 self.start_with_windows = data.get("start_with_windows", True)
                 self.start_minimized = data.get("start_minimized", True)
+            except (json.JSONDecodeError, OSError):
+                pass
 
     def save(self):
+        import tempfile
         os.makedirs(CONFIG_DIR, exist_ok=True)
-        with open(CONFIG_PATH, "w") as f:
-            json.dump({
-                "api_url": self.api_url,
-                "savedvariables_paths": self.savedvariables_paths,
-                "start_with_windows": self.start_with_windows,
-                "start_minimized": self.start_minimized,
-            }, f, indent=2)
+        fd, tmp_path = tempfile.mkstemp(dir=CONFIG_DIR, suffix=".tmp")
+        try:
+            with os.fdopen(fd, "w") as f:
+                json.dump({
+                    "api_url": self.api_url,
+                    "savedvariables_paths": self.savedvariables_paths,
+                    "start_with_windows": self.start_with_windows,
+                    "start_minimized": self.start_minimized,
+                }, f, indent=2)
+            os.replace(tmp_path, CONFIG_PATH)
+        except BaseException:
+            os.unlink(tmp_path)
+            raise
