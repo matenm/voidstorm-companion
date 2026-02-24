@@ -8,7 +8,8 @@ try:
 except ImportError:
     winreg = None
 
-DEFAULT_API_URL = "https://dev.voidstorm.cc"
+DEFAULT_API_URL = "https://voidstorm.cc"
+DEV_API_URL = "https://dev.voidstorm.cc"
 CONFIG_DIR = os.path.join(os.path.expanduser("~"), ".voidstorm-companion")
 CONFIG_PATH = os.path.join(CONFIG_DIR, "config.json")
 STATE_PATH = os.path.join(CONFIG_DIR, "uploaded.json")

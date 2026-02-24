@@ -51,6 +51,15 @@ jobs:
           $env:PATH += ";C:\Program Files (x86)\Inno Setup 6"
           iscc installer.iss
 
+      - name: Generate checksums
+        shell: bash
+        run: |
+          cd dist
+          sha256sum \
+            "VoidstormCompanion-${{ steps.version.outputs.version }}-Setup.exe" \
+            "VoidstormCompanion-${{ steps.version.outputs.version }}-portable.zip" \
+            > checksums.txt
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
@@ -58,3 +67,4 @@ jobs:
           files: |
             dist/VoidstormCompanion-${{ steps.version.outputs.version }}-Setup.exe
             dist/VoidstormCompanion-${{ steps.version.outputs.version }}-portable.zip
+            dist/checksums.txt
