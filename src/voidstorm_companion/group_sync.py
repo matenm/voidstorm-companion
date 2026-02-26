@@ -25,6 +25,8 @@ class GroupSync:
         self._hmac_key = hashlib.sha256(
             (token + ":voidstorm-group-sync").encode()
         ).digest()
+        self._last_state_written = False
+        self._online = None
 
     def start(self):
         if self._running:
@@ -50,6 +52,14 @@ class GroupSync:
                 log.exception("GroupSync poll error")
             time.sleep(POLL_INTERVAL)
 
+    def _set_online(self, online: bool):
+        if self._online is not online:
+            self._online = online
+            if online:
+                log.info("GroupSync connection state: online")
+            else:
+                log.warning("GroupSync connection state: offline")
+
     def _fetch_and_write_state(self):
         try:
             resp = requests.get(
@@ -59,13 +69,17 @@ class GroupSync:
             )
             if resp.status_code != 200:
                 log.warning("GroupSync fetch failed: HTTP %d", resp.status_code)
+                self._set_online(False)
                 return
 
             data = resp.json()
             if not data.get("success"):
+                self._set_online(False)
                 return
 
+            self._set_online(True)
             groups = data.get("data", [])
+            log.info("GroupSync state fetched: %d group(s)", len(groups))
             ts = int(time.time())
             payload = json.dumps({"timestamp": ts, "groups": groups}, separators=(",", ":"))
             sig = hmac.new(self._hmac_key, payload.encode(), hashlib.sha256).hexdigest()
@@ -76,8 +90,10 @@ class GroupSync:
             with open(tmp_path, "w", encoding="utf-8") as f:
                 f.write(lua)
             os.replace(tmp_path, state_path)
+            self._last_state_written = True
         except requests.RequestException:
-            log.warning("GroupSync network error")
+            log.warning("GroupSync network error — preserving last known state")
+            self._set_online(False)
         except Exception:
             log.exception("GroupSync write error")
 
@@ -99,16 +115,27 @@ class GroupSync:
             if not commands:
                 return
 
+            failed = []
             for cmd in commands:
-                self._execute_command(cmd)
+                success = self._execute_command(cmd)
+                if not success:
+                    failed.append(cmd)
 
-            with open(cmd_path, "w", encoding="utf-8") as f:
-                f.write('VoidstormGroupCommands = { commands = {} }\n')
+            if not failed:
+                with open(cmd_path, "w", encoding="utf-8") as f:
+                    f.write('VoidstormGroupCommands = { commands = {} }\n')
+            else:
+                remaining_lua = self._to_lua_commands(failed)
+                with open(cmd_path, "w", encoding="utf-8") as f:
+                    f.write(remaining_lua)
+                log.warning(
+                    "GroupSync retained %d failed command(s) for retry", len(failed)
+                )
 
         except Exception:
             log.exception("GroupSync command processing error")
 
-    def _execute_command(self, cmd: dict):
+    def _execute_command(self, cmd: dict) -> bool:
         action = cmd.get("action")
         group_id = cmd.get("groupId")
         headers = {
@@ -116,52 +143,103 @@ class GroupSync:
             "Content-Type": "application/json",
         }
 
-        try:
-            if action == "SIGNUP":
-                requests.post(
-                    f"{self.api_url}/api/groups/{group_id}/signup",
-                    headers=headers,
-                    json={
-                        "characterName": cmd.get("characterName"),
-                        "realm": cmd.get("realm"),
-                        "characterClass": cmd.get("characterClass"),
-                        "spec": cmd.get("spec"),
-                        "role": cmd.get("role"),
-                        "availableRoles": cmd.get("availableRoles"),
-                        "ilvl": cmd.get("ilvl"),
-                        "mythicPlusScore": cmd.get("mythicPlusScore"),
-                        "source": "ADDON",
-                    },
-                    timeout=10,
-                )
-            elif action == "WITHDRAW":
-                requests.delete(
-                    f"{self.api_url}/api/groups/{group_id}/signup",
-                    headers=headers,
-                    timeout=10,
-                )
-            elif action == "START_GROUP":
-                requests.patch(
-                    f"{self.api_url}/api/groups/{group_id}/start",
-                    headers=headers,
-                    timeout=10,
-                )
-            elif action == "LOCK":
-                requests.patch(
-                    f"{self.api_url}/api/groups/{group_id}/lock",
-                    headers=headers,
-                    timeout=10,
-                )
-            elif action == "CANCEL":
-                requests.patch(
-                    f"{self.api_url}/api/groups/{group_id}/cancel",
-                    headers=headers,
-                    timeout=10,
-                )
-            else:
-                log.warning("Unknown group command: %s", action)
-        except requests.RequestException:
-            log.warning("GroupSync command %s failed for group %s", action, group_id)
+        for attempt in range(3):
+            try:
+                resp = None
+                if action == "SIGNUP":
+                    resp = requests.post(
+                        f"{self.api_url}/api/groups/{group_id}/signup",
+                        headers=headers,
+                        json={
+                            "characterName": cmd.get("characterName"),
+                            "realm": cmd.get("realm"),
+                            "characterClass": cmd.get("characterClass"),
+                            "spec": cmd.get("spec"),
+                            "role": cmd.get("role"),
+                            "availableRoles": cmd.get("availableRoles"),
+                            "ilvl": cmd.get("ilvl"),
+                            "mythicPlusScore": cmd.get("mythicPlusScore"),
+                            "source": "ADDON",
+                        },
+                        timeout=10,
+                    )
+                elif action == "WITHDRAW":
+                    resp = requests.delete(
+                        f"{self.api_url}/api/groups/{group_id}/signup",
+                        headers=headers,
+                        timeout=10,
+                    )
+                elif action == "START_GROUP":
+                    resp = requests.patch(
+                        f"{self.api_url}/api/groups/{group_id}/start",
+                        headers=headers,
+                        timeout=10,
+                    )
+                elif action == "LOCK":
+                    resp = requests.patch(
+                        f"{self.api_url}/api/groups/{group_id}/lock",
+                        headers=headers,
+                        timeout=10,
+                    )
+                elif action == "CANCEL":
+                    resp = requests.patch(
+                        f"{self.api_url}/api/groups/{group_id}/cancel",
+                        headers=headers,
+                        timeout=10,
+                    )
+                else:
+                    log.warning("Unknown group command: %s", action)
+                    return True
+
+                if resp is not None and resp.status_code < 500:
+                    log.info(
+                        "GroupSync command succeeded: action=%s groupId=%s status=%d",
+                        action,
+                        group_id,
+                        resp.status_code,
+                    )
+                    return True
+
+                if attempt < 2:
+                    time.sleep(2)
+
+            except requests.RequestException:
+                if attempt < 2:
+                    time.sleep(2)
+                else:
+                    log.warning(
+                        "GroupSync command failed after 3 attempts: action=%s groupId=%s",
+                        action,
+                        group_id,
+                    )
+                    return False
+
+        log.warning(
+            "GroupSync command failed: action=%s groupId=%s",
+            action,
+            group_id,
+        )
+        return False
+
+    def _to_lua_commands(self, commands: list) -> str:
+        lines = ['VoidstormGroupCommands = { commands = {']
+        for cmd in commands:
+            parts = []
+            for k, v in cmd.items():
+                if v is None:
+                    continue
+                if isinstance(v, bool):
+                    parts.append(f'{k} = {"true" if v else "false"}')
+                elif isinstance(v, (int, float)):
+                    parts.append(f'{k} = {v}')
+                elif isinstance(v, list):
+                    inner = ", ".join(f'"{self._esc(str(i))}"' for i in v)
+                    parts.append(f'{k} = {{{inner}}}')
+                else:
+                    parts.append(f'{k} = "{self._esc(str(v))}"')
+            lines.append('  { ' + ', '.join(parts) + ' },')
+        lines.append('} }')
+        return '\n'.join(lines) + '\n'
 
     def _to_lua_state(self, ts: int, sig: str, groups: list) -> str:
         lines = ['VoidstormGroupSync = {']
