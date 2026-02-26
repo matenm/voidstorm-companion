@@ -1,5 +1,7 @@
 import logging
+import os
 import threading
+import webbrowser
 from datetime import datetime, timezone
 
 from voidstorm_companion.config import Config, STATE_PATH, HISTORY_PATH, STATS_PATH, set_autostart
@@ -12,12 +14,23 @@ from voidstorm_companion.auth_flow import authenticate, get_stored_token, clear_
 from voidstorm_companion.file_watcher import SavedVariablesWatcher
 from voidstorm_companion.tray import TrayApp
 from voidstorm_companion.window_manager import WindowManager
+from voidstorm_companion.group_sync import GroupSync
 
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(message)s",
 )
 log = logging.getLogger("voidstorm-companion")
+
+
+def _derive_addon_path(sv_path: str) -> str | None:
+    wow_root = sv_path
+    for _ in range(4):
+        wow_root = os.path.dirname(wow_root)
+    candidate = os.path.join(wow_root, "Interface", "AddOns", "VoidstormMatchmaking")
+    if os.path.isdir(candidate):
+        return candidate
+    return None
 
 
 class App:
@@ -31,6 +44,7 @@ class App:
         self.client: ApiClient | None = None
         self._client_lock = threading.Lock()
         self.window_manager = WindowManager()
+        self._group_sync: GroupSync | None = None
 
     def _ensure_auth(self) -> bool:
         token = get_stored_token()
@@ -39,6 +53,24 @@ class App:
                 self.client = ApiClient(self.config.api_url, token)
             return True
         return False
+
+    def _start_group_sync(self):
+        with self._client_lock:
+            client = self.client
+        if not client:
+            return
+        addon_path = None
+        for sv_path in self.config.savedvariables_paths:
+            addon_path = _derive_addon_path(sv_path)
+            if addon_path:
+                break
+        if not addon_path:
+            log.warning("GroupSync: addon path not found, skipping")
+            return
+        if self._group_sync:
+            self._group_sync.stop()
+        self._group_sync = GroupSync(self.config.api_url, client.token, addon_path)
+        self._group_sync.start()
 
     def _do_login(self):
         threading.Thread(target=self._login_worker, daemon=True).start()
@@ -52,6 +84,7 @@ class App:
             with self._client_lock:
                 self.client = ApiClient(self.config.api_url, token)
             log.info("Login successful!")
+            self._start_group_sync()
             if self.tray:
                 self.tray.set_status("Authenticated", logged_in=True)
         else:
@@ -197,13 +230,48 @@ class App:
             log.info(f"Update available: v{info['version']}")
             self.tray.set_update(info)
 
+    def _do_update(self):
+        if not self.tray or not self.tray.update_info:
+            return
+
+        download_url = self.tray.update_info.get("download_url")
+        if not download_url:
+            self._open_release_page()
+            return
+
+        try:
+            from voidstorm_companion.updater import download_update, apply_update
+
+            self.tray.set_status("Downloading update...")
+            new_exe = download_update(download_url)
+
+            self.tray.set_status("Installing update...")
+            apply_update(new_exe)
+
+            self.tray.quit()
+        except Exception as e:
+            log.error(f"Auto-update failed: {e}")
+            self._open_release_page()
+
+    def _do_update_async(self):
+        threading.Thread(target=self._do_update, daemon=True).start()
+
+    def _open_release_page(self):
+        if self.tray and self.tray.update_info and self.tray.update_info.get("url"):
+            webbrowser.open(self.tray.update_info["url"])
+
     def _on_quit(self):
+        if self._group_sync:
+            self._group_sync.stop()
         for watcher in self.watchers.values():
             watcher.stop()
         self.window_manager.stop()
         log.info("Shutting down")
 
     def run(self):
+        from voidstorm_companion.updater import cleanup_old_update
+        cleanup_old_update()
+
         log.info("Voidstorm Companion starting...")
 
         self.window_manager.start()
@@ -219,6 +287,7 @@ class App:
                 log.warning("Could not auto-detect WoW SavedVariables path")
 
         self._ensure_auth()
+        self._start_group_sync()
 
         self._apply_autostart()
 
@@ -236,6 +305,7 @@ class App:
             on_settings=self._do_settings,
             on_history=self._do_history,
             on_dashboard=self._do_dashboard,
+            on_update=self._do_update_async,
         )
 
         if self.client and self.watchers:
@@ -257,7 +327,18 @@ class App:
 
 
 def main():
+    import argparse
+    parser = argparse.ArgumentParser(description="Voidstorm Companion")
+    parser.add_argument("--dev", action="store_true", help="Use development API server (dev.voidstorm.cc)")
+    parser.add_argument("--minimized", action="store_true", help="Start minimized to tray")
+    args = parser.parse_args()
+
     app = App()
+
+    if args.dev:
+        from voidstorm_companion.config import DEV_API_URL
+        app.config.api_url = DEV_API_URL
+
     app.run()
 
 

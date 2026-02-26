@@ -35,7 +35,7 @@ def _get_icon(active: bool) -> Image.Image:
 
 class TrayApp:
     def __init__(self, on_upload_now, on_login, on_logout, on_quit,
-                 on_settings=None, on_history=None, on_dashboard=None):
+                 on_settings=None, on_history=None, on_dashboard=None, on_update=None):
         self.on_upload_now = on_upload_now
         self.on_login = on_login
         self.on_logout = on_logout
@@ -43,6 +43,7 @@ class TrayApp:
         self.on_settings = on_settings
         self.on_history = on_history
         self.on_dashboard = on_dashboard
+        self.on_update = on_update
         self.status = "Idle"
         self.logged_in = False
         self.icon: pystray.Icon | None = None
@@ -56,7 +57,7 @@ class TrayApp:
         return pystray.Menu(
             pystray.MenuItem(
                 lambda text: f"Update available (v{self.update_info['version']})",
-                lambda: self._open_update(),
+                lambda: self.on_update() if self.on_update else self._open_update(),
                 visible=lambda item: self.update_info is not None,
             ),
             pystray.MenuItem(lambda text: f"Status: {self.status}", None, enabled=False),
