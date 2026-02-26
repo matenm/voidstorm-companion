@@ -1,4 +1,5 @@
 import logging
+import os
 import threading
 import webbrowser
 from datetime import datetime, timezone
@@ -13,12 +14,23 @@ from voidstorm_companion.auth_flow import authenticate, get_stored_token, clear_
 from voidstorm_companion.file_watcher import SavedVariablesWatcher
 from voidstorm_companion.tray import TrayApp
 from voidstorm_companion.window_manager import WindowManager
+from voidstorm_companion.group_sync import GroupSync
 
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(message)s",
 )
 log = logging.getLogger("voidstorm-companion")
+
+
+def _derive_addon_path(sv_path: str) -> str | None:
+    wow_root = sv_path
+    for _ in range(4):
+        wow_root = os.path.dirname(wow_root)
+    candidate = os.path.join(wow_root, "Interface", "AddOns", "VoidstormGamba")
+    if os.path.isdir(candidate):
+        return candidate
+    return None
 
 
 class App:
@@ -32,6 +44,7 @@ class App:
         self.client: ApiClient | None = None
         self._client_lock = threading.Lock()
         self.window_manager = WindowManager()
+        self._group_sync: GroupSync | None = None
 
     def _ensure_auth(self) -> bool:
         token = get_stored_token()
@@ -40,6 +53,24 @@ class App:
                 self.client = ApiClient(self.config.api_url, token)
             return True
         return False
+
+    def _start_group_sync(self):
+        with self._client_lock:
+            client = self.client
+        if not client:
+            return
+        addon_path = None
+        for sv_path in self.config.savedvariables_paths:
+            addon_path = _derive_addon_path(sv_path)
+            if addon_path:
+                break
+        if not addon_path:
+            log.warning("GroupSync: addon path not found, skipping")
+            return
+        if self._group_sync:
+            self._group_sync.stop()
+        self._group_sync = GroupSync(self.config.api_url, client.token, addon_path)
+        self._group_sync.start()
 
     def _do_login(self):
         threading.Thread(target=self._login_worker, daemon=True).start()
@@ -53,6 +84,7 @@ class App:
             with self._client_lock:
                 self.client = ApiClient(self.config.api_url, token)
             log.info("Login successful!")
+            self._start_group_sync()
             if self.tray:
                 self.tray.set_status("Authenticated", logged_in=True)
         else:
@@ -229,6 +261,8 @@ class App:
             webbrowser.open(self.tray.update_info["url"])
 
     def _on_quit(self):
+        if self._group_sync:
+            self._group_sync.stop()
         for watcher in self.watchers.values():
             watcher.stop()
         self.window_manager.stop()
@@ -253,6 +287,7 @@ class App:
                 log.warning("Could not auto-detect WoW SavedVariables path")
 
         self._ensure_auth()
+        self._start_group_sync()
 
         self._apply_autostart()
 
