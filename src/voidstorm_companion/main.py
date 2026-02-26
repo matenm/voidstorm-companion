@@ -27,7 +27,7 @@ def _derive_addon_path(sv_path: str) -> str | None:
     wow_root = sv_path
     for _ in range(4):
         wow_root = os.path.dirname(wow_root)
-    candidate = os.path.join(wow_root, "Interface", "AddOns", "VoidstormGamba")
+    candidate = os.path.join(wow_root, "Interface", "AddOns", "VoidstormMatchmaking")
     if os.path.isdir(candidate):
         return candidate
     return None
