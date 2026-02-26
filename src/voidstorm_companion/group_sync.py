@@ -13,6 +13,7 @@ log = logging.getLogger("voidstorm-companion")
 POLL_INTERVAL = 3.0
 STATE_FILENAME = "VoidstormGroupSync.lua"
 COMMANDS_FILENAME = "VoidstormGroupCommands.lua"
+MAX_COMMAND_RETRIES = 5
 
 
 class GroupSync:
@@ -79,12 +80,29 @@ class GroupSync:
 
             self._set_online(True)
             groups = data.get("data", [])
+
+            my_signups = {}
+            invite_pending = []
+            try:
+                state_resp = requests.get(
+                    f"{self.api_url}/api/groups/my-state",
+                    headers={"Authorization": f"Bearer {self.token}"},
+                    timeout=10,
+                )
+                if state_resp.status_code == 200:
+                    state_data = state_resp.json()
+                    if state_data.get("success"):
+                        my_signups = state_data["data"].get("mySignups", {})
+                        invite_pending = state_data["data"].get("invitePending", [])
+            except requests.RequestException:
+                pass
+
             log.info("GroupSync state fetched: %d group(s)", len(groups))
             ts = int(time.time())
             payload = json.dumps({"timestamp": ts, "groups": groups}, separators=(",", ":"))
             sig = hmac.new(self._hmac_key, payload.encode(), hashlib.sha256).hexdigest()
 
-            lua = self._to_lua_state(ts, sig, groups)
+            lua = self._to_lua_state(ts, sig, groups, my_signups, invite_pending)
             state_path = os.path.join(self.addon_path, STATE_FILENAME)
             tmp_path = state_path + ".tmp"
             with open(tmp_path, "w", encoding="utf-8") as f:
@@ -117,8 +135,18 @@ class GroupSync:
 
             failed = []
             for cmd in commands:
+                retry_count = int(cmd.get("retryCount", 0))
+                if retry_count >= MAX_COMMAND_RETRIES:
+                    log.warning(
+                        "GroupSync discarding command after %d retries: action=%s groupId=%s",
+                        retry_count,
+                        cmd.get("action"),
+                        cmd.get("groupId"),
+                    )
+                    continue
                 success = self._execute_command(cmd)
                 if not success:
+                    cmd["retryCount"] = retry_count + 1
                     failed.append(cmd)
 
             if not failed:
@@ -241,7 +269,9 @@ class GroupSync:
         lines.append('} }')
         return '\n'.join(lines) + '\n'
 
-    def _to_lua_state(self, ts: int, sig: str, groups: list) -> str:
+    def _to_lua_state(self, ts: int, sig: str, groups: list,
+                       my_signups: dict | None = None,
+                       invite_pending: list | None = None) -> str:
         lines = ['VoidstormGroupSync = {']
         lines.append(f'  timestamp = {ts},')
         lines.append(f'  hmac = "{sig}",')
@@ -266,6 +296,17 @@ class GroupSync:
             lines.append(f'      acceptedDps = {g.get("acceptedDps", 0)},')
             lines.append(f'      totalSignups = {g.get("totalSignups", 0)},')
             lines.append('    },')
+        lines.append('  },')
+        lines.append('  mySignups = {')
+        for gid, info in (my_signups or {}).items():
+            lines.append(f'    ["{self._esc(gid)}"] = {{')
+            lines.append(f'      status = "{self._esc(info.get("status", ""))}",')
+            lines.append(f'      role = "{self._esc(info.get("role", ""))}",')
+            lines.append('    },')
+        lines.append('  },')
+        lines.append('  invitePending = {')
+        for name_realm in (invite_pending or []):
+            lines.append(f'    "{self._esc(name_realm)}",')
         lines.append('  },')
         lines.append('}')
         return '\n'.join(lines) + '\n'
