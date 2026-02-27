@@ -100,6 +100,7 @@ class Config:
         self.start_with_windows: bool = True
         self.start_minimized: bool = True
         self.auto_upload: bool = True
+        self.analytics: bool = True
         self.load()
 
     @property
@@ -128,6 +129,7 @@ class Config:
                 self.start_with_windows = data.get("start_with_windows", True)
                 self.start_minimized = data.get("start_minimized", True)
                 self.auto_upload = data.get("auto_upload", True)
+                self.analytics = data.get("analytics", True)
             except (json.JSONDecodeError, OSError):
                 pass
 
@@ -143,6 +145,7 @@ class Config:
                     "start_with_windows": self.start_with_windows,
                     "start_minimized": self.start_minimized,
                     "auto_upload": self.auto_upload,
+                    "analytics": self.analytics,
                 }, f, indent=2)
             os.replace(tmp_path, CONFIG_PATH)
         except BaseException:

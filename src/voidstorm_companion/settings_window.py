@@ -30,7 +30,7 @@ def open_settings(config: Config, parent: tk.Tk):
     win.configure(bg=BG)
     win.resizable(False, False)
 
-    w, h = 400, 660
+    w, h = 400, 690
     sx = (win.winfo_screenwidth() - w) // 2
     sy = (win.winfo_screenheight() - h) // 2
     win.geometry(f"{w}x{h}+{sx}+{sy}")
@@ -54,6 +54,7 @@ def open_settings(config: Config, parent: tk.Tk):
     autostart_var = tk.BooleanVar(value=get_autostart())
     minimized_var = tk.BooleanVar(value=config.start_minimized)
     auto_upload_var = tk.BooleanVar(value=config.auto_upload)
+    analytics_var = tk.BooleanVar(value=config.analytics)
 
     cb_frame = tk.Frame(win, bg=BG)
     cb_frame.pack(fill="x", padx=24)
@@ -72,6 +73,12 @@ def open_settings(config: Config, parent: tk.Tk):
 
     tk.Checkbutton(
         cb_frame, text="Auto-upload on file change", variable=auto_upload_var,
+        bg=BG, fg=FG, selectcolor="#313244", activebackground=BG, activeforeground=FG,
+        font=("Segoe UI", 10),
+    ).pack(anchor="w", pady=2)
+
+    tk.Checkbutton(
+        cb_frame, text="Anonymous usage analytics", variable=analytics_var,
         bg=BG, fg=FG, selectcolor="#313244", activebackground=BG, activeforeground=FG,
         font=("Segoe UI", 10),
     ).pack(anchor="w", pady=2)
@@ -172,6 +179,7 @@ def open_settings(config: Config, parent: tk.Tk):
         config.start_with_windows = autostart_var.get()
         config.start_minimized = minimized_var.get()
         config.auto_upload = auto_upload_var.get()
+        config.analytics = analytics_var.get()
         config.savedvariables_paths = list(paths)
         config.save()
         set_autostart(config.start_with_windows, config.start_minimized)

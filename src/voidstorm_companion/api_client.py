@@ -2,7 +2,8 @@ import requests
 
 _PLAYER_FIELDS = {"name", "roll", "rolled", "realm", "guild", "guildRank"}
 _SESSION_FIELDS = {"id", "mode", "host", "wager", "channel", "startedAt", "endedAt", "rounds", "signature"}
-_ROUND_FIELDS = {"number", "mode", "time", "players", "results"}
+_ROUND_FIELDS = {"number", "mode", "time", "players", "results", "pokerHand"}
+_VALID_MODES = {"DIFFERENCE", "POT", "DEATHROLL", "ODDEVEN", "ELIMINATION", "LOTTERY", "POKER"}
 _MAX_WAGER = 1_000_000
 
 
@@ -22,6 +23,8 @@ class ApiClient:
     def prepare_payload(self, sessions: list[dict]) -> dict:
         cleaned = []
         for s in sessions:
+            if s.get("mode") not in _VALID_MODES:
+                continue
             rounds = s.get("rounds", [])
             if not rounds:
                 continue
@@ -71,3 +74,122 @@ class ApiClient:
         if "data" in data:
             return data["data"]
         return data
+
+    def _headers(self):
+        return {
+            "Authorization": f"Bearer {self.token}",
+            "Content-Type": "application/json",
+        }
+
+    def get_characters(self) -> list[dict]:
+        resp = requests.get(
+            f"{self.api_url}/api/user/characters",
+            headers=self._headers(),
+            timeout=10,
+        )
+        if resp.status_code == 401:
+            raise AuthError("Unauthorized — token may be expired")
+        if resp.status_code != 200:
+            raise UploadError(f"Request failed (HTTP {resp.status_code}): {resp.text}")
+        data = resp.json().get("data", {})
+        return data.get("characters", []) if isinstance(data, dict) else []
+
+    def create_group(self, payload: dict) -> dict:
+        resp = requests.post(
+            f"{self.api_url}/api/groups",
+            json=payload,
+            headers=self._headers(),
+            timeout=10,
+        )
+        if resp.status_code == 401:
+            raise AuthError("Unauthorized — token may be expired")
+        if resp.status_code not in (200, 201):
+            raise UploadError(f"Request failed (HTTP {resp.status_code}): {resp.text}")
+        return resp.json().get("data", {})
+
+    def signup_group(self, group_id: str, payload: dict) -> dict:
+        resp = requests.post(
+            f"{self.api_url}/api/groups/{group_id}/signup",
+            json=payload,
+            headers=self._headers(),
+            timeout=10,
+        )
+        if resp.status_code == 401:
+            raise AuthError("Unauthorized — token may be expired")
+        if resp.status_code not in (200, 201):
+            raise UploadError(f"Request failed (HTTP {resp.status_code}): {resp.text}")
+        return resp.json().get("data", {})
+
+    def withdraw_group(self, group_id: str) -> dict:
+        resp = requests.delete(
+            f"{self.api_url}/api/groups/{group_id}/signup",
+            headers=self._headers(),
+            timeout=10,
+        )
+        if resp.status_code == 401:
+            raise AuthError("Unauthorized — token may be expired")
+        if resp.status_code != 200:
+            raise UploadError(f"Request failed (HTTP {resp.status_code}): {resp.text}")
+        return resp.json().get("data", {})
+
+    def accept_signup(self, group_id: str, signup_id: str) -> dict:
+        resp = requests.patch(
+            f"{self.api_url}/api/groups/{group_id}/signup/{signup_id}",
+            json={"status": "ACCEPTED"},
+            headers=self._headers(),
+            timeout=10,
+        )
+        if resp.status_code == 401:
+            raise AuthError("Unauthorized — token may be expired")
+        if resp.status_code != 200:
+            raise UploadError(f"Request failed (HTTP {resp.status_code}): {resp.text}")
+        return resp.json().get("data", {})
+
+    def decline_signup(self, group_id: str, signup_id: str) -> dict:
+        resp = requests.patch(
+            f"{self.api_url}/api/groups/{group_id}/signup/{signup_id}",
+            json={"status": "DECLINED"},
+            headers=self._headers(),
+            timeout=10,
+        )
+        if resp.status_code == 401:
+            raise AuthError("Unauthorized — token may be expired")
+        if resp.status_code != 200:
+            raise UploadError(f"Request failed (HTTP {resp.status_code}): {resp.text}")
+        return resp.json().get("data", {})
+
+    def start_group(self, group_id: str) -> dict:
+        resp = requests.patch(
+            f"{self.api_url}/api/groups/{group_id}/start",
+            headers=self._headers(),
+            timeout=10,
+        )
+        if resp.status_code == 401:
+            raise AuthError("Unauthorized — token may be expired")
+        if resp.status_code != 200:
+            raise UploadError(f"Request failed (HTTP {resp.status_code}): {resp.text}")
+        return resp.json().get("data", {})
+
+    def cancel_group(self, group_id: str) -> dict:
+        resp = requests.patch(
+            f"{self.api_url}/api/groups/{group_id}/cancel",
+            headers=self._headers(),
+            timeout=10,
+        )
+        if resp.status_code == 401:
+            raise AuthError("Unauthorized — token may be expired")
+        if resp.status_code != 200:
+            raise UploadError(f"Request failed (HTTP {resp.status_code}): {resp.text}")
+        return resp.json().get("data", {})
+
+    def lock_group(self, group_id: str) -> dict:
+        resp = requests.patch(
+            f"{self.api_url}/api/groups/{group_id}/lock",
+            headers=self._headers(),
+            timeout=10,
+        )
+        if resp.status_code == 401:
+            raise AuthError("Unauthorized — token may be expired")
+        if resp.status_code != 200:
+            raise UploadError(f"Request failed (HTTP {resp.status_code}): {resp.text}")
+        return resp.json().get("data", {})

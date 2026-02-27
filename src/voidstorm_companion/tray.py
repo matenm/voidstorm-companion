@@ -35,7 +35,8 @@ def _get_icon(active: bool) -> Image.Image:
 
 class TrayApp:
     def __init__(self, on_upload_now, on_login, on_logout, on_quit,
-                 on_settings=None, on_history=None, on_dashboard=None, on_update=None):
+                 on_settings=None, on_history=None, on_dashboard=None,
+                 on_group_finder=None, on_update=None):
         self.on_upload_now = on_upload_now
         self.on_login = on_login
         self.on_logout = on_logout
@@ -43,6 +44,7 @@ class TrayApp:
         self.on_settings = on_settings
         self.on_history = on_history
         self.on_dashboard = on_dashboard
+        self.on_group_finder = on_group_finder
         self.on_update = on_update
         self.status = "Idle"
         self.logged_in = False
@@ -78,6 +80,11 @@ class TrayApp:
                 enabled=lambda item: self.logged_in,
             ),
             pystray.MenuItem(
+                "Group Finder",
+                lambda: self.on_group_finder() if self.on_group_finder else None,
+                enabled=lambda item: self.logged_in,
+            ),
+            pystray.MenuItem(
                 "Dashboard",
                 lambda: self.on_dashboard() if self.on_dashboard else None,
                 default=True,
@@ -99,8 +106,11 @@ class TrayApp:
         if logged_in is not None:
             self.logged_in = logged_in
         if self.icon:
-            self.icon.icon = _get_icon(self.logged_in)
-            self.icon.update_menu()
+            try:
+                self.icon.icon = _get_icon(self.logged_in)
+                self.icon.update_menu()
+            except OSError:
+                pass
 
     def set_tooltip(self, total_uploaded: int, last_upload: str | None, watching: bool = False):
         if not self.icon:
@@ -110,11 +120,17 @@ class TrayApp:
             lines.append("Watching for changes")
         lines.append(f"Uploaded: {total_uploaded} sessions")
         lines.append(f"Last: {last_upload}" if last_upload else "Last: Never")
-        self.icon.title = "\n".join(lines)
+        try:
+            self.icon.title = "\n".join(lines)
+        except OSError:
+            pass
 
     def notify(self, title: str, message: str):
         if self.icon:
-            self.icon.notify(message, title)
+            try:
+                self.icon.notify(message, title)
+            except OSError:
+                pass
 
     def set_update(self, info: dict | None):
         self.update_info = info

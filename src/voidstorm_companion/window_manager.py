@@ -46,6 +46,11 @@ class WindowManager:
         if self._root:
             self._root.after(0, lambda: open_dashboard(stats, sv_paths, self._root))
 
+    def open_group_finder(self, group_sync, api_client):
+        from voidstorm_companion.group_finder_window import open_group_finder
+        if self._root:
+            self._root.after(0, lambda: open_group_finder(group_sync, api_client, self._root))
+
     def stop(self):
         if self._root:
             self._root.after(0, self._root.quit)

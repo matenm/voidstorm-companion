@@ -15,6 +15,7 @@ from voidstorm_companion.file_watcher import SavedVariablesWatcher
 from voidstorm_companion.tray import TrayApp
 from voidstorm_companion.window_manager import WindowManager
 from voidstorm_companion.group_sync import GroupSync
+from voidstorm_companion import analytics
 
 logging.basicConfig(
     level=logging.INFO,
@@ -60,16 +61,19 @@ class App:
         if not client:
             return
         addon_path = None
+        sv_dirs = []
         for sv_path in self.config.savedvariables_paths:
-            addon_path = _derive_addon_path(sv_path)
-            if addon_path:
-                break
+            if not addon_path:
+                addon_path = _derive_addon_path(sv_path)
+            sv_dir = os.path.dirname(sv_path)
+            if os.path.isdir(sv_dir) and sv_dir not in sv_dirs:
+                sv_dirs.append(sv_dir)
         if not addon_path:
             log.warning("GroupSync: addon path not found, skipping")
             return
         if self._group_sync:
             self._group_sync.stop()
-        self._group_sync = GroupSync(self.config.api_url, client.token, addon_path)
+        self._group_sync = GroupSync(self.config.api_url, client.token, addon_path, sv_dirs)
         self._group_sync.start()
 
     def _do_login(self):
@@ -84,6 +88,7 @@ class App:
             with self._client_lock:
                 self.client = ApiClient(self.config.api_url, token)
             log.info("Login successful!")
+            analytics.track("login")
             self._start_group_sync()
             if self.tray:
                 self.tray.set_status("Authenticated", logged_in=True)
@@ -168,21 +173,15 @@ class App:
                 return
             except FileNotFoundError:
                 log.error(f"SavedVariables not found: {sv_path}")
-                self.history.record(0, 0, error=f"File not found: {sv_path}")
-                if self.tray:
-                    self.tray.set_status("File not found")
-                self._update_tray_tooltip()
-                return
+                continue
             except Exception as e:
-                log.error(f"Upload error: {e}")
+                log.error(f"Upload error for {sv_path}: {e}")
                 self.history.record(0, 0, error=str(e))
-                if self.tray:
-                    self.tray.set_status("Error")
-                self._update_tray_tooltip()
-                return
+                continue
 
         if total_imported or total_skipped:
             self.history.record(total_imported, total_skipped)
+            analytics.track("upload", {"sessions": total_imported})
         if self.tray:
             self.tray.set_status(f"Synced {total_imported}" if total_imported else "Up to date")
         self._update_tray_tooltip()
@@ -207,6 +206,14 @@ class App:
 
     def _do_dashboard(self):
         self.window_manager.open_dashboard(self.stats, list(self.config.savedvariables_paths))
+
+    def _do_group_finder(self):
+        with self._client_lock:
+            client = self.client
+        if not client or not self._group_sync:
+            return
+        analytics.track("group_finder")
+        self.window_manager.open_group_finder(self._group_sync, client)
 
     def _apply_autostart(self):
         set_autostart(self.config.start_with_windows, self.config.start_minimized)
@@ -242,6 +249,7 @@ class App:
         try:
             from voidstorm_companion.updater import download_update, apply_update
 
+            analytics.track("update_started")
             self.tray.set_status("Downloading update...")
             new_exe = download_update(download_url)
 
@@ -274,6 +282,8 @@ class App:
 
         log.info("Voidstorm Companion starting...")
 
+        analytics.init(self.config.analytics)
+
         self.window_manager.start()
 
         if not self.config.savedvariables_paths:
@@ -305,6 +315,7 @@ class App:
             on_settings=self._do_settings,
             on_history=self._do_history,
             on_dashboard=self._do_dashboard,
+            on_group_finder=self._do_group_finder,
             on_update=self._do_update_async,
         )
 
@@ -322,6 +333,9 @@ class App:
         self._update_tray_tooltip()
 
         threading.Thread(target=self._check_update, daemon=True).start()
+
+        from voidstorm_companion.updater import CURRENT_VERSION
+        analytics.track("app_start", {"version": CURRENT_VERSION})
 
         self.tray.run()
 
