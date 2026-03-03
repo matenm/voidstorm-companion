@@ -1,9 +1,13 @@
 import requests
 
-_PLAYER_FIELDS = {"name", "roll", "rolled", "realm", "guild", "guildRank"}
+_PLAYER_FIELDS = {"name", "roll", "rolled", "realm", "guild", "guildRank", "bet", "payout"}
 _SESSION_FIELDS = {"id", "mode", "host", "wager", "channel", "startedAt", "endedAt", "rounds", "signature"}
-_ROUND_FIELDS = {"number", "mode", "time", "players", "results", "pokerHand"}
-_VALID_MODES = {"DIFFERENCE", "POT", "DEATHROLL", "ODDEVEN", "ELIMINATION", "LOTTERY", "POKER"}
+_ROUND_FIELDS = {"number", "mode", "time", "players", "results", "pokerHand", "lotteryRanges", "pocket", "color", "betType"}
+_VALID_MODES = {
+    "DIFFERENCE", "POT", "DEATHROLL", "ODDEVEN", "ELIMINATION", "LOTTERY",
+    "POKER", "DOUBLEORNOTHING", "BLACKJACK", "COINFLIP", "WAR", "SLOTS",
+    "ROULETTE",
+}
 _MAX_WAGER = 1_000_000
 
 
@@ -20,7 +24,40 @@ class ApiClient:
         self.api_url = api_url.rstrip("/")
         self.token = token
 
-    def prepare_payload(self, sessions: list[dict]) -> dict:
+    def prepare_payload(
+        self,
+        sessions: list[dict],
+        player_stats: dict | None = None,
+        tournaments: list[dict] | None = None,
+        achievements: dict | None = None,
+        leagues: list[dict] | None = None,
+        challenges: list[dict] | None = None,
+        audit_log: list[dict] | None = None,
+    ) -> dict:
+        """Build the upload payload from raw sessions and optional supplementary data.
+
+        Args:
+            sessions: Raw session dicts parsed from SavedVariables.
+            player_stats: Optional pre-built playerStats dict to include in the
+                payload alongside sessions.  When ``None`` or empty the key is
+                omitted so existing API callers are unaffected.
+            tournaments: Optional list of normalized tournament dicts.  When
+                ``None`` or empty the key is omitted.
+            achievements: Optional dict mapping achievement key -> metadata.
+                When ``None`` or empty the key is omitted.
+            leagues: Optional list of normalized league dicts.  When ``None``
+                or empty the key is omitted.
+            challenges: Optional list of normalized challenge dicts.  When
+                ``None`` or empty the key is omitted.
+            audit_log: Optional list of normalized audit log entry dicts.  When
+                ``None`` or empty the key is omitted.
+
+        Returns:
+            Dict with at minimum a ``"sessions"`` key; optional keys
+            ``"playerStats"``, ``"tournaments"``, ``"achievements"``,
+            ``"leagues"``, ``"challenges"``, and ``"auditLog"`` are included
+            when the corresponding arguments are provided and non-empty.
+        """
         cleaned = []
         for s in sessions:
             if s.get("mode") not in _VALID_MODES:
@@ -48,10 +85,64 @@ class ApiClient:
                 clean_rounds.append(clean_round)
             clean_session["rounds"] = clean_rounds
             cleaned.append(clean_session)
-        return {"sessions": cleaned}
+        payload: dict = {"sessions": cleaned}
+        if player_stats:
+            payload["playerStats"] = player_stats
+        if tournaments:
+            payload["tournaments"] = tournaments
+        if achievements:
+            payload["achievements"] = achievements
+        if leagues:
+            payload["leagues"] = leagues
+        if challenges:
+            payload["challenges"] = challenges
+        if audit_log:
+            payload["auditLog"] = audit_log
+        return payload
 
-    def upload(self, sessions: list[dict]) -> dict:
-        payload = self.prepare_payload(sessions)
+    def upload(
+        self,
+        sessions: list[dict],
+        player_stats: dict | None = None,
+        tournaments: list[dict] | None = None,
+        achievements: dict | None = None,
+        leagues: list[dict] | None = None,
+        challenges: list[dict] | None = None,
+        audit_log: list[dict] | None = None,
+    ) -> dict:
+        """Upload sessions (and optional supplementary data) to the API.
+
+        Args:
+            sessions: Raw session dicts to upload.
+            player_stats: Optional playerStats dict built from exportedStats.
+                Included in the request body when provided; omitted otherwise.
+            tournaments: Optional list of normalized tournament dicts to include
+                in the request body alongside sessions.
+            achievements: Optional dict of achievement data to include in the
+                request body alongside sessions.
+            leagues: Optional list of normalized league dicts to include in
+                the request body alongside sessions.
+            challenges: Optional list of normalized challenge dicts to include
+                in the request body alongside sessions.
+            audit_log: Optional list of normalized audit log entries to include
+                in the request body alongside sessions.
+
+        Returns:
+            Dict with ``imported`` and ``skipped`` counts from the server.
+
+        Raises:
+            AuthError: When the server responds with HTTP 401.
+            UploadError: When the server responds with any other non-200 status.
+        """
+        payload = self.prepare_payload(
+            sessions,
+            player_stats=player_stats,
+            tournaments=tournaments,
+            achievements=achievements,
+            leagues=leagues,
+            challenges=challenges,
+            audit_log=audit_log,
+        )
         if not payload["sessions"]:
             return {"imported": 0, "skipped": 0}
         resp = requests.post(
@@ -70,6 +161,97 @@ class ApiClient:
         if resp.status_code != 200:
             raise UploadError(f"Upload failed (HTTP {resp.status_code}): {resp.text}")
 
+        data = resp.json()
+        if "data" in data:
+            return data["data"]
+        return data
+
+    def upload_tournament(self, tournament_data: dict) -> dict:
+        """Post a completed tournament result to the API.
+
+        Args:
+            tournament_data: Normalized tournament dict as produced by
+                ``lua_parser.parse_tournaments``.  Must contain an ``"id"`` key.
+
+        Returns:
+            Response body dict from the server (unwrapped from ``"data"`` envelope
+            when present).
+
+        Raises:
+            AuthError: When the server responds with HTTP 401.
+            UploadError: When the server responds with any other non-200/201 status.
+        """
+        tournament_id = tournament_data.get("id", "")
+        resp = requests.post(
+            f"{self.api_url}/api/v1/gambling/tournaments/{tournament_id}/result",
+            json=tournament_data,
+            headers=self._headers(),
+            timeout=30,
+        )
+        if resp.status_code == 401:
+            raise AuthError("Unauthorized — token may be expired")
+        if resp.status_code not in (200, 201):
+            raise UploadError(f"Tournament upload failed (HTTP {resp.status_code}): {resp.text}")
+        data = resp.json()
+        if "data" in data:
+            return data["data"]
+        return data
+
+    def upload_audit(self, audit_entries: list[dict]) -> dict:
+        """Post audit log entries to the dedicated audit endpoint.
+
+        Args:
+            audit_entries: List of normalized audit log entry dicts as produced
+                by ``lua_parser.parse_audit_log``.
+
+        Returns:
+            Response body dict from the server (unwrapped from ``"data"`` envelope
+            when present).
+
+        Raises:
+            AuthError: When the server responds with HTTP 401.
+            UploadError: When the server responds with any other non-200/201 status.
+        """
+        resp = requests.post(
+            f"{self.api_url}/api/v1/gambling/audit",
+            json={"entries": audit_entries},
+            headers=self._headers(),
+            timeout=30,
+        )
+        if resp.status_code == 401:
+            raise AuthError("Unauthorized — token may be expired")
+        if resp.status_code not in (200, 201):
+            raise UploadError(f"Audit upload failed (HTTP {resp.status_code}): {resp.text}")
+        data = resp.json()
+        if "data" in data:
+            return data["data"]
+        return data
+
+    def upload_reputation(self, payload: dict) -> dict:
+        """Upload reputation data (encounters + tags) to the website.
+
+        Args:
+            payload: Dict with keys ``exportedAt``, ``version``, ``encounters``,
+                ``tags`` as produced by ``lua_parser.parse_partyledger_export``.
+
+        Returns:
+            Response body dict from the server (unwrapped from ``"data"`` envelope
+            when present).
+
+        Raises:
+            AuthError: When the server responds with HTTP 401.
+            UploadError: When the server responds with any other non-200 status.
+        """
+        resp = requests.post(
+            f"{self.api_url}/api/reputation/upload",
+            json=payload,
+            headers=self._headers(),
+            timeout=30,
+        )
+        if resp.status_code == 401:
+            raise AuthError("Unauthorized — token may be expired")
+        if resp.status_code not in (200, 201):
+            raise UploadError(f"Reputation upload failed (HTTP {resp.status_code}): {resp.text}")
         data = resp.json()
         if "data" in data:
             return data["data"]

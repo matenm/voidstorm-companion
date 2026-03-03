@@ -17,6 +17,7 @@ STATS_PATH = os.path.join(CONFIG_DIR, "stats.json")
 
 
 _SV_NAME = "VoidstormGamba.lua"
+_PL_SV_NAME = "VoidstormPartyLedger.lua"
 
 
 def _default_wow_patterns() -> list[str]:
@@ -37,6 +38,28 @@ def _default_wow_patterns() -> list[str]:
 def detect_savedvariables() -> list[str]:
     found = []
     for pattern in _default_wow_patterns():
+        found.extend(glob.glob(pattern))
+    return sorted(set(found))
+
+
+def _default_partyledger_patterns() -> list[str]:
+    if platform.system() == "Windows":
+        patterns = [os.path.join(
+            os.environ.get("PROGRAMFILES(X86)", r"C:\Program Files (x86)"),
+            rf"World of Warcraft\_retail_\WTF\Account\*\SavedVariables\{_PL_SV_NAME}",
+        )]
+        for letter in "CDEFGH":
+            patterns.append(rf"{letter}:\Games\World of Warcraft\_retail_\WTF\Account\*\SavedVariables\{_PL_SV_NAME}")
+        return patterns
+    else:
+        return [
+            f"/Applications/World of Warcraft/_retail_/WTF/Account/*/SavedVariables/{_PL_SV_NAME}",
+        ]
+
+
+def detect_partyledger_savedvariables() -> list[str]:
+    found = []
+    for pattern in _default_partyledger_patterns():
         found.extend(glob.glob(pattern))
     return sorted(set(found))
 
@@ -101,6 +124,12 @@ class Config:
         self.start_minimized: bool = True
         self.auto_upload: bool = True
         self.analytics: bool = True
+        self.webhook_url: str = ""
+        self.stats_webhook_url: str = ""
+        self.stats_summary_threshold: int = 5
+        self.league_webhook_url: str = ""
+        self.webhook_verbosity: str = "normal"
+        self.partyledger_paths: list[str] = []
         self.load()
 
     @property
@@ -130,6 +159,12 @@ class Config:
                 self.start_minimized = data.get("start_minimized", True)
                 self.auto_upload = data.get("auto_upload", True)
                 self.analytics = data.get("analytics", True)
+                self.webhook_url = data.get("webhook_url", "")
+                self.stats_webhook_url = data.get("stats_webhook_url", "")
+                self.stats_summary_threshold = int(data.get("stats_summary_threshold", 5))
+                self.league_webhook_url = data.get("league_webhook_url", "")
+                self.webhook_verbosity = data.get("webhook_verbosity", "normal")
+                self.partyledger_paths = data.get("partyledger_paths", [])
             except (json.JSONDecodeError, OSError):
                 pass
 
@@ -146,6 +181,12 @@ class Config:
                     "start_minimized": self.start_minimized,
                     "auto_upload": self.auto_upload,
                     "analytics": self.analytics,
+                    "webhook_url": self.webhook_url,
+                    "stats_webhook_url": self.stats_webhook_url,
+                    "stats_summary_threshold": self.stats_summary_threshold,
+                    "league_webhook_url": self.league_webhook_url,
+                    "webhook_verbosity": self.webhook_verbosity,
+                    "partyledger_paths": self.partyledger_paths,
                 }, f, indent=2)
             os.replace(tmp_path, CONFIG_PATH)
         except BaseException:
