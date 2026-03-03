@@ -375,3 +375,65 @@ class ApiClient:
         if resp.status_code != 200:
             raise UploadError(f"Request failed (HTTP {resp.status_code}): {resp.text}")
         return resp.json().get("data", {})
+
+    def upload_keys(self, runs: list[dict], team: dict | None = None) -> dict:
+        """Upload M+ run data (and optional team history) to the keys API.
+
+        Args:
+            runs: List of normalized run dicts to upload.
+            team: Optional dict mapping player name to team history data.
+
+        Returns:
+            Response body dict from the server (unwrapped from ``"data"``
+            envelope when present).
+
+        Raises:
+            AuthError: When the server responds with HTTP 401.
+            UploadError: When the server responds with any other non-200/201 status.
+        """
+        payload = {"runs": runs}
+        if team:
+            payload["team"] = team
+        resp = requests.post(
+            f"{self.api_url}/api/keys/upload",
+            json=payload,
+            headers=self._headers(),
+            timeout=30,
+        )
+        if resp.status_code == 401:
+            raise AuthError("Unauthorized -- token may be expired")
+        if resp.status_code not in (200, 201):
+            raise UploadError(f"Keys upload failed (HTTP {resp.status_code}): {resp.text}")
+        data = resp.json()
+        if "data" in data:
+            return data["data"]
+        return data
+
+    def fetch_keys_comps(self, dungeon: str, affix: str) -> dict:
+        """Fetch top comp data for a dungeon/affix combination.
+
+        Args:
+            dungeon: Dungeon map ID or identifier string.
+            affix: Current affix identifier string.
+
+        Returns:
+            Comp data dict from the server (unwrapped from ``"data"``
+            envelope when present).
+
+        Raises:
+            AuthError: When the server responds with HTTP 401.
+            UploadError: When the request fails.
+        """
+        resp = requests.get(
+            f"{self.api_url}/api/keys/comps/{dungeon}/{affix}",
+            headers=self._headers(),
+            timeout=15,
+        )
+        if resp.status_code == 401:
+            raise AuthError("Unauthorized -- token may be expired")
+        if resp.status_code != 200:
+            raise UploadError(f"Keys comps fetch failed (HTTP {resp.status_code}): {resp.text}")
+        data = resp.json()
+        if "data" in data:
+            return data["data"]
+        return data
