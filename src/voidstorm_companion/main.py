@@ -23,6 +23,7 @@ from voidstorm_companion.file_watcher import SavedVariablesWatcher
 from voidstorm_companion.tray import TrayApp
 from voidstorm_companion.window_manager import WindowManager
 from voidstorm_companion.group_sync import GroupSync
+from voidstorm_companion.keys_integration import KeysIntegration
 from voidstorm_companion import analytics
 
 logging.basicConfig(
@@ -799,6 +800,7 @@ class App:
         self._client_lock = threading.Lock()
         self.window_manager = WindowManager()
         self._group_sync: GroupSync | None = None
+        self._keys_integration: KeysIntegration | None = None
 
     def _ensure_auth(self) -> bool:
         token = get_stored_token()
@@ -828,6 +830,23 @@ class App:
             self._group_sync.stop()
         self._group_sync = GroupSync(self.config.api_url, client.token, addon_path, sv_dirs)
         self._group_sync.start()
+
+    def _start_keys_integration(self):
+        with self._client_lock:
+            client = self.client
+        if not client or not self.config.keys_paths:
+            return
+        for keys_path in self.config.keys_paths:
+            wow_path = keys_path
+            for _ in range(5):
+                wow_path = os.path.dirname(wow_path)
+            account = os.path.basename(os.path.dirname(os.path.dirname(keys_path)))
+            if self._keys_integration:
+                self._keys_integration.stop()
+            self._keys_integration = KeysIntegration(wow_path, account, client)
+            self._keys_integration.start()
+            log.info(f"VoidstormKeys integration started for {account}")
+            break
 
     def _do_login(self):
         threading.Thread(target=self._login_worker, daemon=True).start()
@@ -1203,6 +1222,8 @@ class App:
     def _on_quit(self):
         if self._group_sync:
             self._group_sync.stop()
+        if self._keys_integration:
+            self._keys_integration.stop()
         for watcher in self.watchers.values():
             watcher.stop()
         for watcher in self.partyledger_watchers.values():
@@ -1240,8 +1261,19 @@ class App:
             else:
                 log.debug("No PartyLedger SavedVariables found")
 
+        if not self.config.keys_paths:
+            from voidstorm_companion.config import detect_keys_savedvariables
+            found_keys = detect_keys_savedvariables()
+            if found_keys:
+                self.config.keys_paths = found_keys
+                self.config.save()
+                log.info(f"Auto-detected {len(found_keys)} VoidstormKeys path(s)")
+            else:
+                log.debug("No VoidstormKeys SavedVariables found")
+
         self._ensure_auth()
         self._start_group_sync()
+        self._start_keys_integration()
 
         self._apply_autostart()
 
