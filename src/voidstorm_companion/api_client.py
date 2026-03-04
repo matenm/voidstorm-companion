@@ -409,6 +409,26 @@ class ApiClient:
             return data["data"]
         return data
 
+    def fetch_reputation_bulk(self, players: list[str]) -> dict:
+        if not players:
+            return {}
+        batches = [players[i:i + 100] for i in range(0, len(players), 100)]
+        merged: dict = {}
+        for batch in batches:
+            params = ",".join(batch)
+            resp = requests.get(
+                f"{self.api_url}/api/reputation/bulk",
+                params={"players": params},
+                headers={"Authorization": f"Bearer {self.token}"},
+                timeout=30,
+            )
+            if resp.status_code not in (200, 201):
+                continue
+            data = resp.json()
+            if data.get("success") and data.get("data", {}).get("players"):
+                merged.update(data["data"]["players"])
+        return merged
+
     def fetch_keys_comps(self, dungeon: str, affix: str) -> dict:
         """Fetch top comp data for a dungeon/affix combination.
 

@@ -30,7 +30,7 @@ def open_settings(config: Config, parent: tk.Tk):
     win.configure(bg=BG)
     win.resizable(False, False)
 
-    w, h = 400, 690
+    w, h = 400, 780
     sx = (win.winfo_screenwidth() - w) // 2
     sy = (win.winfo_screenheight() - h) // 2
     win.geometry(f"{w}x{h}+{sx}+{sy}")
@@ -55,6 +55,7 @@ def open_settings(config: Config, parent: tk.Tk):
     minimized_var = tk.BooleanVar(value=config.start_minimized)
     auto_upload_var = tk.BooleanVar(value=config.auto_upload)
     analytics_var = tk.BooleanVar(value=config.analytics)
+    webhook_var = tk.StringVar(value=config.webhook_url)
 
     cb_frame = tk.Frame(win, bg=BG)
     cb_frame.pack(fill="x", padx=24)
@@ -82,6 +83,23 @@ def open_settings(config: Config, parent: tk.Tk):
         bg=BG, fg=FG, selectcolor="#313244", activebackground=BG, activeforeground=FG,
         font=("Segoe UI", 10),
     ).pack(anchor="w", pady=2)
+
+    webhook_label = tk.Label(
+        win, text="Discord Webhook", font=("Segoe UI", 11, "bold"), bg=BG, fg=FG,
+    )
+    webhook_label.pack(pady=(12, 2), anchor="w", padx=24)
+
+    webhook_hint = tk.Label(
+        win, text="Paste a Discord webhook URL to post game results after upload.",
+        font=("Segoe UI", 8), bg=BG, fg="#6c7086", justify="left", wraplength=352, anchor="w",
+    )
+    webhook_hint.pack(fill="x", padx=24, pady=(0, 4))
+
+    webhook_entry = tk.Entry(
+        win, textvariable=webhook_var, bg=SURFACE, fg=FG, insertbackground=FG,
+        font=("Segoe UI", 10), relief="flat", highlightthickness=1, highlightcolor=ACCENT,
+    )
+    webhook_entry.pack(fill="x", padx=24, pady=(0, 4))
 
     acct_label = tk.Label(
         win, text="WoW Accounts", font=("Segoe UI", 11, "bold"), bg=BG, fg=FG,
@@ -180,6 +198,7 @@ def open_settings(config: Config, parent: tk.Tk):
         config.start_minimized = minimized_var.get()
         config.auto_upload = auto_upload_var.get()
         config.analytics = analytics_var.get()
+        config.webhook_url = webhook_var.get().strip()
         config.savedvariables_paths = list(paths)
         config.save()
         set_autostart(config.start_with_windows, config.start_minimized)

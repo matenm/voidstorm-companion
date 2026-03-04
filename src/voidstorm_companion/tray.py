@@ -36,7 +36,7 @@ def _get_icon(active: bool) -> Image.Image:
 class TrayApp:
     def __init__(self, on_upload_now, on_login, on_logout, on_quit,
                  on_settings=None, on_history=None, on_dashboard=None,
-                 on_group_finder=None, on_update=None):
+                 on_group_finder=None, on_update=None, on_debt_manager=None):
         self.on_upload_now = on_upload_now
         self.on_login = on_login
         self.on_logout = on_logout
@@ -46,6 +46,7 @@ class TrayApp:
         self.on_dashboard = on_dashboard
         self.on_group_finder = on_group_finder
         self.on_update = on_update
+        self.on_debt_manager = on_debt_manager
         self.status = "Idle"
         self.logged_in = False
         self.icon: pystray.Icon | None = None
@@ -83,6 +84,10 @@ class TrayApp:
                 "Group Finder",
                 lambda: self.on_group_finder() if self.on_group_finder else None,
                 enabled=lambda item: self.logged_in,
+            ),
+            pystray.MenuItem(
+                "Debt Manager",
+                lambda: self.on_debt_manager() if self.on_debt_manager else None,
             ),
             pystray.MenuItem(
                 "Dashboard",

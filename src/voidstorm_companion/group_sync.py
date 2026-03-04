@@ -13,8 +13,59 @@ log = logging.getLogger("voidstorm-companion")
 POLL_INTERVAL = 3.0
 COMMAND_POLL_INTERVAL = 0.5
 STATE_FILENAME = "VoidstormGroupSync.lua"
+AUTH_KEY_FILENAME = "VoidstormAuthKey.lua"
 COMMANDS_FILENAME = "VoidstormMatchmaking.lua"
 MAX_COMMAND_RETRIES = 5
+
+
+def _fire_windows_toast(title: str, message: str) -> None:
+    """Send a Windows balloon/toast notification via ctypes shell API.
+
+    Non-critical — any failure is silently swallowed so the caller is never
+    disrupted by notification infrastructure issues.
+    """
+    try:
+        # NIIF_NOSOUND = 0x00000010, NIIF_INFO = 0x00000001
+        # Shell_NotifyIconW is the Win32 entry point for tray notifications.
+        # We use a simple MessageBeep + a hidden approach: leverage
+        # win10toast-style Shell_NotifyIcon via ctypes if available,
+        # otherwise fall back to a non-blocking approach.
+        #
+        # Simplest reliable approach without a third-party library: use the
+        # Windows Script Host COM object (wscript.shell popup) — but that
+        # blocks. Instead use ctypes to call Shell_NotifyIconW directly.
+        #
+        # The lightest dependency-free path on Win32 is to call
+        # ToastNotificationManager via WinRT COM, but that requires
+        # comtypes. Use PowerShell as an out-of-process launcher instead,
+        # which is always available on Windows 10+.
+        import subprocess
+        safe_title = title.replace("'", "''")
+        safe_message = message.replace("'", "''")
+        ps_script = (
+            "[Windows.UI.Notifications.ToastNotificationManager, "
+            "Windows.UI.Notifications, ContentType=WindowsRuntime] | Out-Null; "
+            "[Windows.Data.Xml.Dom.XmlDocument, Windows.Data.Xml.Dom.XmlDocument, "
+            "ContentType=WindowsRuntime] | Out-Null; "
+            "$xml = [Windows.UI.Notifications.ToastNotificationManager]"
+            "::GetTemplateContent("
+            "[Windows.UI.Notifications.ToastTemplateType]::ToastText02); "
+            "$nodes = $xml.GetElementsByTagName('text'); "
+            f"$nodes.Item(0).AppendChild($xml.CreateTextNode('{safe_title}')); "
+            f"$nodes.Item(1).AppendChild($xml.CreateTextNode('{safe_message}')); "
+            "$toast = [Windows.UI.Notifications.ToastNotification]::new($xml); "
+            "$notifier = [Windows.UI.Notifications.ToastNotificationManager]"
+            "::CreateToastNotifier('Voidstorm Companion'); "
+            "$notifier.Show($toast)"
+        )
+        subprocess.Popen(
+            ["powershell", "-WindowStyle", "Hidden", "-NonInteractive", "-Command", ps_script],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            creationflags=0x08000000,  # CREATE_NO_WINDOW
+        )
+    except Exception:
+        log.debug("GroupSync toast notification failed (non-critical)", exc_info=True)
 
 
 class GroupSync:
@@ -36,6 +87,10 @@ class GroupSync:
         self._my_group_signups: dict = {}
         self._invite_pending: list = []
         self._force_refresh = False
+        # Task 7b: change-detection and sync versioning
+        self._sync_version: int = int(time.time())
+        self._prev_groups: list | None = None
+        self._auth_key_written: bool = False
 
     def start(self):
         if self._running:
@@ -140,22 +195,69 @@ class GroupSync:
                 pass
 
             log.info("GroupSync state fetched: %d group(s)", len(groups))
+
+            # Task 7b: compute change summary before updating internal state.
+            # Skip on the first poll (_prev_groups is None) to avoid a spurious
+            # toast notification that compares against an empty baseline.
+            if self._prev_groups is not None:
+                change_summary = self._compute_change_summary(self._prev_groups, groups)
+                has_meaningful_change = bool(change_summary)
+            else:
+                change_summary = ""
+                has_meaningful_change = False
+
             self._groups = groups
             self._my_signups = my_signups
             self._my_group_signups = my_group_signups
             self._invite_pending = invite_pending
             self._fire_callbacks()
+
             ts = int(time.time())
             payload = json.dumps({"timestamp": ts, "groups": groups}, separators=(",", ":"))
             sig = hmac.new(self._hmac_key, payload.encode(), hashlib.sha256).hexdigest()
 
-            lua = self._to_lua_state(ts, sig, groups, my_signups, invite_pending, my_group_signups)
+            # Task 7b: increment sync version counter
+            self._sync_version += 1
+
+            summary_str = change_summary if change_summary else "No changes"
+            lua = self._to_lua_state(
+                ts, sig, groups, my_signups, invite_pending, my_group_signups,
+                payload=payload,
+                sync_version=self._sync_version,
+                last_sync_time=ts,
+                change_summary=summary_str,
+            )
+
+            # Task 3: write VoidstormGroupSync.lua atomically
             state_path = os.path.join(self.addon_path, STATE_FILENAME)
             tmp_path = state_path + ".tmp"
-            with open(tmp_path, "w", encoding="utf-8") as f:
-                f.write(lua)
-            os.replace(tmp_path, state_path)
+            try:
+                with open(tmp_path, "w", encoding="utf-8") as f:
+                    f.write(lua)
+                os.replace(tmp_path, state_path)
+            except BaseException:
+                if os.path.exists(tmp_path):
+                    os.unlink(tmp_path)
+                raise
+
+            # Task 3: write VoidstormAuthKey.lua atomically alongside sync file,
+            # but only once per session — the key never changes within a run.
+            if not self._auth_key_written:
+                self._write_auth_key()
+                self._auth_key_written = True
+
             self._last_state_written = True
+
+            # Task 7b: save current groups as previous state for next diff
+            self._prev_groups = groups
+
+            # Task 7b: fire Windows toast notification on meaningful group changes
+            if has_meaningful_change:
+                log.info("GroupSync meaningful change detected: %s", change_summary)
+                _fire_windows_toast(
+                    "Voidstorm — Groups Updated",
+                    f"{change_summary}. Reload in-game to see changes.",
+                )
         except requests.RequestException:
             log.warning("GroupSync network error — preserving last known state")
             self._set_online(False)
@@ -324,6 +426,89 @@ class GroupSync:
         )
         return False
 
+    def _write_auth_key(self) -> None:
+        """Task 3: Atomically write VoidstormAuthKey.lua to the addon directory.
+
+        Format: VoidstormAuthKey = "<hex-encoded-hmac-key>"
+        """
+        auth_key_path = os.path.join(self.addon_path, AUTH_KEY_FILENAME)
+        tmp_path = auth_key_path + ".tmp"
+        hex_key = self._hmac_key.hex()
+        content = f'VoidstormAuthKey = "{hex_key}"\n'
+        try:
+            with open(tmp_path, "w", encoding="utf-8") as f:
+                f.write(content)
+            os.replace(tmp_path, auth_key_path)
+        except BaseException:
+            if os.path.exists(tmp_path):
+                os.unlink(tmp_path)
+            raise
+        log.debug("GroupSync wrote auth key to %s", auth_key_path)
+
+    @staticmethod
+    def _compute_change_summary(prev_groups: list, curr_groups: list) -> str:
+        """Task 7b: Diff previous and current groups lists.
+
+        Returns a human-readable summary string when there are meaningful
+        differences (new groups, closed groups, signup count changes).
+        Returns an empty string when nothing changed.
+        """
+        prev_by_id: dict = {g.get("id"): g for g in prev_groups}
+        curr_by_id: dict = {g.get("id"): g for g in curr_groups}
+
+        prev_ids = set(prev_by_id)
+        curr_ids = set(curr_by_id)
+
+        new_ids = curr_ids - prev_ids
+        removed_ids = prev_ids - curr_ids
+
+        # Count groups that became closed/cancelled/started
+        newly_closed: list[str] = []
+        signup_increases: int = 0
+        signup_decreases: int = 0
+
+        for gid in curr_ids & prev_ids:
+            prev_g = prev_by_id[gid]
+            curr_g = curr_by_id[gid]
+
+            prev_status = prev_g.get("status", "")
+            curr_status = curr_g.get("status", "")
+            if prev_status not in ("CLOSED", "CANCELLED", "STARTED") and curr_status in (
+                "CLOSED", "CANCELLED", "STARTED"
+            ):
+                newly_closed.append(curr_status.lower())
+
+            prev_signups = int(prev_g.get("totalSignups", 0))
+            curr_signups = int(curr_g.get("totalSignups", 0))
+            delta = curr_signups - prev_signups
+            if delta > 0:
+                signup_increases += delta
+            elif delta < 0:
+                signup_decreases += abs(delta)
+
+        parts: list[str] = []
+        if new_ids:
+            n = len(new_ids)
+            parts.append(f"{n} new group{'s' if n != 1 else ''}")
+        if removed_ids:
+            n = len(removed_ids)
+            parts.append(f"{n} group{'s' if n != 1 else ''} removed")
+        if newly_closed:
+            # Summarise by status word, e.g. "1 group closed, 1 group started"
+            from collections import Counter
+            for status, count in Counter(newly_closed).items():
+                parts.append(f"{count} group{'s' if count != 1 else ''} {status}")
+        if signup_increases:
+            parts.append(
+                f"{signup_increases} new signup{'s' if signup_increases != 1 else ''}"
+            )
+        if signup_decreases:
+            parts.append(
+                f"{signup_decreases} signup{'s' if signup_decreases != 1 else ''} withdrawn"
+            )
+
+        return ", ".join(parts)
+
     def _to_lua_commands(self, commands: list, reopen_ui: bool = False) -> str:
         lines = ['VoidstormGroupCommands = {']
         if reopen_ui:
@@ -351,10 +536,23 @@ class GroupSync:
     def _to_lua_state(self, ts: int, sig: str, groups: list,
                        my_signups: dict | None = None,
                        invite_pending: list | None = None,
-                       my_group_signups: dict | None = None) -> str:
+                       my_group_signups: dict | None = None,
+                       payload: str | None = None,
+                       sync_version: int = 0,
+                       last_sync_time: int | None = None,
+                       change_summary: str = "") -> str:
         lines = ['VoidstormGroupSync = {']
         lines.append(f'  timestamp = {ts},')
         lines.append(f'  hmac = "{sig}",')
+        # Task 7b: sync version counter — monotonically increasing per write
+        lines.append(f'  syncVersion = {sync_version},')
+        # Task 7b: Unix timestamp of this sync write
+        lines.append(f'  lastSyncTime = {last_sync_time if last_sync_time is not None else ts},')
+        # Task 7b: human-readable change description
+        lines.append(f'  changeSummary = "{self._esc(change_summary)}",')
+        # Task 3: exact JSON string that was HMAC'd so the addon can verify
+        if payload is not None:
+            lines.append(f'  jsonPayload = "{self._esc(payload)}",')
         lines.append('  groups = {')
         for g in groups:
             lines.append('    {')

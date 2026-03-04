@@ -5,6 +5,14 @@ from voidstorm_companion.lua_parser import parse_savedvariables
 from voidstorm_companion.stats_store import StatsStore
 from voidstorm_companion.theme import BG, FG, ACCENT, BTN_BG, BTN_HOVER, SURFACE, GREEN, RED, app_icon_path
 
+YELLOW = "#f9e2af"
+MODE_NAMES = {
+    "DIFFERENCE": "Difference", "POT": "Pot Roll", "DEATHROLL": "Deathroll",
+    "ODDEVEN": "Odd/Even", "ELIMINATION": "Elimination", "LOTTERY": "Lottery",
+    "POKER": "Poker", "DOUBLEORNOTHING": "Dbl or Nothing",
+    "BLACKJACK": "Blackjack", "COINFLIP": "Coin Flip", "WAR": "War",
+}
+
 
 def _relative_time(ts: int) -> str:
     try:
@@ -33,7 +41,7 @@ def open_dashboard(stats: StatsStore, sv_paths: list[str], parent: tk.Tk):
     win.configure(bg=BG)
     win.resizable(False, False)
 
-    w, h = 580, 860
+    w, h = 580, 960
     sx = (win.winfo_screenwidth() - w) // 2
     sy = (win.winfo_screenheight() - h) // 2
     win.geometry(f"{w}x{h}+{sx}+{sy}")
@@ -55,6 +63,7 @@ def open_dashboard(stats: StatsStore, sv_paths: list[str], parent: tk.Tk):
     header = tk.Label(win, text="Dashboard", font=("Segoe UI", 14, "bold"), bg=BG, fg=FG)
     header.pack(pady=(16, 8))
 
+    # --- Overview stats ---
     stats_frame = tk.Frame(win, bg=SURFACE, padx=16, pady=12)
     stats_frame.pack(fill="x", padx=16, pady=(0, 8))
 
@@ -89,21 +98,48 @@ def open_dashboard(stats: StatsStore, sv_paths: list[str], parent: tk.Tk):
     else:
         tk.Label(left_col, text="None yet", font=("Segoe UI", 10), bg=SURFACE, fg=FG).pack(anchor="w")
 
+    # Right column: modes, win rates, streaks
     tk.Label(right_col, text="Modes", font=("Segoe UI", 8), bg=SURFACE, fg=ACCENT).pack(anchor="w")
     if stats.modes:
-        mode_lines = [f"{count} {mode.capitalize()}" for mode, count in sorted(stats.modes.items(), key=lambda x: -x[1])]
+        mode_lines = [f"{count} {MODE_NAMES.get(mode, mode.capitalize())}" for mode, count in sorted(stats.modes.items(), key=lambda x: -x[1])]
         tk.Label(right_col, text="\n".join(mode_lines), font=("Segoe UI", 10), bg=SURFACE, fg=FG, justify="left").pack(anchor="w")
     else:
         tk.Label(right_col, text="None yet", font=("Segoe UI", 10), bg=SURFACE, fg=FG).pack(anchor="w")
 
-    tk.Label(right_col, text="Most Active", font=("Segoe UI", 8), bg=SURFACE, fg=ACCENT).pack(anchor="w", pady=(8, 0))
-    if stats.players:
-        top = sorted(stats.players.items(), key=lambda x: -x[1])[:10]
-        player_lines = [f"{name} ({count} rounds)" for name, count in top]
-        tk.Label(right_col, text="\n".join(player_lines), font=("Segoe UI", 10), bg=SURFACE, fg=FG, justify="left").pack(anchor="w")
+    tk.Label(right_col, text="Top Win Rates", font=("Segoe UI", 8), bg=SURFACE, fg=ACCENT).pack(anchor="w", pady=(8, 0))
+    rated_players = [(p, stats.win_rate(p), stats.wins.get(p, 0), stats.losses.get(p, 0))
+                     for p in all_players if (stats.wins.get(p, 0) + stats.losses.get(p, 0)) >= 3]
+    rated_players.sort(key=lambda x: -x[1])
+    if rated_players:
+        rate_lines = [f"{name} {wr:.0f}% ({w}W/{l}L)" for name, wr, w, l in rated_players[:5]]
+        tk.Label(right_col, text="\n".join(rate_lines), font=("Segoe UI", 10), bg=SURFACE, fg=FG, justify="left").pack(anchor="w")
     else:
-        tk.Label(right_col, text="None yet", font=("Segoe UI", 10), bg=SURFACE, fg=FG).pack(anchor="w")
+        tk.Label(right_col, text="None yet (3+ games)", font=("Segoe UI", 10), bg=SURFACE, fg=FG).pack(anchor="w")
 
+    tk.Label(right_col, text="Current Streaks", font=("Segoe UI", 8), bg=SURFACE, fg=ACCENT).pack(anchor="w", pady=(8, 0))
+    active_streaks = [(p, s) for p, s in stats.streaks.items() if s != 0]
+    active_streaks.sort(key=lambda x: -abs(x[1]))
+    if active_streaks:
+        streak_lines = []
+        for name, s in active_streaks[:5]:
+            if s > 0:
+                streak_lines.append(f"{name} {s}W streak")
+            else:
+                streak_lines.append(f"{name} {abs(s)}L streak")
+        tk.Label(right_col, text="\n".join(streak_lines), font=("Segoe UI", 10), bg=SURFACE, fg=YELLOW, justify="left").pack(anchor="w")
+    else:
+        tk.Label(right_col, text="None", font=("Segoe UI", 10), bg=SURFACE, fg=FG).pack(anchor="w")
+
+    # --- Rivalries section ---
+    rivalries = stats.top_rivalries(5)
+    if rivalries:
+        rivalry_frame = tk.Frame(win, bg=SURFACE, padx=16, pady=8)
+        rivalry_frame.pack(fill="x", padx=16, pady=(0, 8))
+        tk.Label(rivalry_frame, text="Top Rivalries", font=("Segoe UI", 8), bg=SURFACE, fg=ACCENT).pack(anchor="w")
+        rivalry_lines = [f"{matchup}  ({count} game{'s' if count != 1 else ''})" for matchup, count in rivalries]
+        tk.Label(rivalry_frame, text="\n".join(rivalry_lines), font=("Segoe UI", 10), bg=SURFACE, fg=FG, justify="left").pack(anchor="w")
+
+    # --- Recent Sessions ---
     tk.Label(win, text="Recent Sessions", font=("Segoe UI", 11, "bold"), bg=BG, fg=FG).pack(anchor="w", padx=16, pady=(4, 4))
 
     list_frame = tk.Frame(win, bg=SURFACE)
@@ -145,6 +181,7 @@ def open_dashboard(stats: StatsStore, sv_paths: list[str], parent: tk.Tk):
             row.pack(fill="x", padx=4, pady=1)
 
             mode = session.get("mode", "?")
+            mode_display = MODE_NAMES.get(mode, mode)
             wager = _format_gold(min(int(session.get("wager", 0)), 1_000_000))
             ts = _relative_time(int(session.get("startedAt", 0)))
 
@@ -156,7 +193,7 @@ def open_dashboard(stats: StatsStore, sv_paths: list[str], parent: tk.Tk):
                 summary = results.get("summary", "")
 
             tk.Label(
-                row, text=f"{ts}  {mode} - {wager}", font=("Consolas", 9), bg=row_bg, fg=ACCENT, anchor="w",
+                row, text=f"{ts}  {mode_display} - {wager}", font=("Consolas", 9), bg=row_bg, fg=ACCENT, anchor="w",
             ).pack(fill="x", padx=8)
 
             if summary:

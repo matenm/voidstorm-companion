@@ -801,6 +801,111 @@ class App:
         self.window_manager = WindowManager()
         self._group_sync: GroupSync | None = None
         self._keys_integration: KeysIntegration | None = None
+        self._quit_event = threading.Event()
+
+    def _reputation_sync_path(self) -> str | None:
+        if not self.config.partyledger_paths:
+            return None
+        sv_path = self.config.partyledger_paths[0]
+        parts = sv_path.replace("\\", "/").split("/WTF/")
+        if len(parts) < 2:
+            return None
+        wow_root = parts[0]
+        return os.path.join(wow_root, "Interface", "AddOns", "VoidstormPartyLedger", "VoidstormReputationSync.lua")
+
+    def _write_reputation_sync(self, player_data: dict) -> None:
+        import time
+        out_path = self._reputation_sync_path()
+        if not out_path:
+            log.warning("Cannot determine reputation sync path")
+            return
+        os.makedirs(os.path.dirname(out_path), exist_ok=True)
+        synced_at = int(time.time())
+        lines: list[str] = []
+        lines.append("VoidstormReputationSyncDB = {")
+        lines.append(f"\tsyncedAt = {synced_at},")
+        lines.append("\tplayers = {")
+        for name, data in player_data.items():
+            escaped = name.replace('"', '\\"')
+            lines.append(f'\t\t["{escaped}"] = {{')
+            reliability = data.get("reliability")
+            if reliability is not None:
+                lines.append(f"\t\t\treliability = {reliability},")
+            else:
+                lines.append("\t\t\treliability = nil,")
+            lines.append(f'\t\t\ttotalEncounters = {int(data.get("totalEncounters", 0))},')
+            lines.append(f'\t\t\tcompletedEncounters = {int(data.get("completedEncounters", 0))},')
+            lines.append(f'\t\t\tendorsements = {int(data.get("endorsements", 0))},')
+            lines.append(f'\t\t\tuniqueEndorsers = {int(data.get("uniqueEndorsers", 0))},')
+            top_tags = data.get("topTags") or {}
+            lines.append("\t\t\ttopTags = {")
+            for tag, count in top_tags.items():
+                safe_tag = str(tag).replace('"', '\\"')
+                lines.append(f'\t\t\t\t["{safe_tag}"] = {int(count)},')
+            lines.append("\t\t\t},")
+            negative_tags = data.get("negativeTags") or {}
+            lines.append("\t\t\tnegativeTags = {")
+            for tag, count in negative_tags.items():
+                safe_tag = str(tag).replace('"', '\\"')
+                lines.append(f'\t\t\t\t["{safe_tag}"] = {int(count)},')
+            lines.append("\t\t\t},")
+            badges = data.get("badges") or []
+            lines.append("\t\t\tbadges = {")
+            for badge in badges:
+                safe_badge = str(badge).replace('"', '\\"')
+                lines.append(f'\t\t\t\t"{safe_badge}",')
+            lines.append("\t\t\t},")
+            lines.append("\t\t},")
+        lines.append("\t},")
+        lines.append("}")
+        content = "\n".join(lines) + "\n"
+        import tempfile
+        dir_ = os.path.dirname(out_path)
+        fd, tmp_path = tempfile.mkstemp(dir=dir_, suffix=".tmp")
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                f.write(content)
+            os.replace(tmp_path, out_path)
+            log.info(f"Reputation sync written: {len(player_data)} player(s) -> {out_path}")
+        except BaseException:
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                pass
+            raise
+
+    def _do_reputation_sync(self) -> None:
+        with self._client_lock:
+            client = self.client
+        if not client:
+            return
+        paths = list(self.config.partyledger_paths)
+        if not paths:
+            return
+        all_players: set[str] = set()
+        for pl_path in paths:
+            try:
+                payload = parse_partyledger_export(pl_path)
+                if not payload:
+                    continue
+                for enc in payload.get("encounters", {}).values():
+                    for member_name in enc.get("members", {}).keys():
+                        all_players.add(str(member_name))
+            except Exception as e:
+                log.warning(f"Reputation sync: failed to parse {pl_path}: {e}")
+        if not all_players:
+            return
+        try:
+            player_data = client.fetch_reputation_bulk(list(all_players))
+        except Exception as e:
+            log.warning(f"Reputation bulk fetch failed: {e}")
+            return
+        if not player_data:
+            return
+        try:
+            self._write_reputation_sync(player_data)
+        except Exception as e:
+            log.error(f"Failed to write reputation sync file: {e}")
 
     def _ensure_auth(self) -> bool:
         token = get_stored_token()
@@ -1220,6 +1325,7 @@ class App:
             webbrowser.open(self.tray.update_info["url"])
 
     def _on_quit(self):
+        self._quit_event.set()
         if self._group_sync:
             self._group_sync.stop()
         if self._keys_integration:
@@ -1307,6 +1413,13 @@ class App:
 
         if self.client and self.partyledger_watchers:
             threading.Thread(target=self._do_reputation_upload, daemon=True).start()
+
+        def _reputation_sync_loop():
+            while not self._quit_event.is_set():
+                self._do_reputation_sync()
+                self._quit_event.wait(300)
+
+        threading.Thread(target=_reputation_sync_loop, daemon=True).start()
 
         is_authed = self.client is not None
         if is_authed and self.watchers:

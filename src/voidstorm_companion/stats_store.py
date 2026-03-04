@@ -15,6 +15,14 @@ class StatsStore:
         self.players: dict[str, int] = {}
         self.gold_won: dict[str, int] = {}
         self.gold_lost: dict[str, int] = {}
+        self.wins: dict[str, int] = {}
+        self.losses: dict[str, int] = {}
+        self.streaks: dict[str, int] = {}
+        self.best_streaks: dict[str, int] = {}
+        self.worst_streaks: dict[str, int] = {}
+        self.mode_wins: dict[str, dict[str, int]] = {}
+        self.mode_losses: dict[str, dict[str, int]] = {}
+        self.h2h: dict[str, dict[str, int]] = {}
         self._seen_ids: dict[str, None] = {}
         self._lock = threading.Lock()
         self._load()
@@ -30,6 +38,14 @@ class StatsStore:
                 self.players = data.get("players", {})
                 self.gold_won = data.get("gold_won", {})
                 self.gold_lost = data.get("gold_lost", {})
+                self.wins = data.get("wins", {})
+                self.losses = data.get("losses", {})
+                self.streaks = data.get("streaks", {})
+                self.best_streaks = data.get("best_streaks", {})
+                self.worst_streaks = data.get("worst_streaks", {})
+                self.mode_wins = data.get("mode_wins", {})
+                self.mode_losses = data.get("mode_losses", {})
+                self.h2h = data.get("h2h", {})
                 self._seen_ids = dict.fromkeys(data.get("session_ids_seen", []))
             except (json.JSONDecodeError, OSError):
                 pass
@@ -48,6 +64,14 @@ class StatsStore:
                     "players": self.players,
                     "gold_won": self.gold_won,
                     "gold_lost": self.gold_lost,
+                    "wins": self.wins,
+                    "losses": self.losses,
+                    "streaks": self.streaks,
+                    "best_streaks": self.best_streaks,
+                    "worst_streaks": self.worst_streaks,
+                    "mode_wins": self.mode_wins,
+                    "mode_losses": self.mode_losses,
+                    "h2h": self.h2h,
                     "session_ids_seen": list(self._seen_ids.keys())[-MAX_SEEN_IDS:],
                 }, f, indent=2)
             os.replace(tmp_path, self.stats_path)
@@ -57,6 +81,18 @@ class StatsStore:
             except OSError:
                 pass
             raise
+
+    def _update_streak(self, name: str, won: bool):
+        cur = self.streaks.get(name, 0)
+        if won:
+            self.streaks[name] = max(cur, 0) + 1
+        else:
+            self.streaks[name] = min(cur, 0) - 1
+        s = self.streaks[name]
+        if s > 0:
+            self.best_streaks[name] = max(self.best_streaks.get(name, 0), s)
+        elif s < 0:
+            self.worst_streaks[name] = min(self.worst_streaks.get(name, 0), s)
 
     def update(self, sessions: list[dict]):
         with self._lock:
@@ -85,8 +121,32 @@ class StatsStore:
                         self.gold_won[winner] = self.gold_won.get(winner, 0) + amount
                     if loser and amount:
                         self.gold_lost[loser] = self.gold_lost.get(loser, 0) + amount
+                    if winner:
+                        self.wins[winner] = self.wins.get(winner, 0) + 1
+                        self._update_streak(winner, True)
+                        if mode not in self.mode_wins:
+                            self.mode_wins[mode] = {}
+                        self.mode_wins[mode][winner] = self.mode_wins[mode].get(winner, 0) + 1
+                    if loser:
+                        self.losses[loser] = self.losses.get(loser, 0) + 1
+                        self._update_streak(loser, False)
+                        if mode not in self.mode_losses:
+                            self.mode_losses[mode] = {}
+                        self.mode_losses[mode][loser] = self.mode_losses[mode].get(loser, 0) + 1
+                    if winner and loser:
+                        key = f"{winner} vs {loser}"
+                        self.h2h[key] = self.h2h.get(key, 0) + 1
             if self._seen_ids:
                 if len(self._seen_ids) > MAX_SEEN_IDS:
                     keys = list(self._seen_ids.keys())
                     self._seen_ids = dict.fromkeys(keys[-MAX_SEEN_IDS:])
                 self._save()
+
+    def win_rate(self, name: str) -> float:
+        w = self.wins.get(name, 0)
+        l = self.losses.get(name, 0)
+        total = w + l
+        return (w / total * 100) if total > 0 else 0.0
+
+    def top_rivalries(self, limit: int = 5) -> list[tuple[str, int]]:
+        return sorted(self.h2h.items(), key=lambda x: -x[1])[:limit]

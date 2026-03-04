@@ -51,6 +51,11 @@ class WindowManager:
         if self._root:
             self._root.after(0, lambda: open_group_finder(group_sync, api_client, self._root))
 
+    def open_debt_manager(self, sv_paths):
+        from voidstorm_companion.debt_manager_window import open_debt_manager
+        if self._root:
+            self._root.after(0, lambda: open_debt_manager(sv_paths, self._root))
+
     def stop(self):
         if self._root:
             self._root.after(0, self._root.quit)
