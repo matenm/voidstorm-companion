@@ -795,6 +795,7 @@ class App:
         self.watchers: dict[str, SavedVariablesWatcher] = {}
         self.partyledger_watchers: dict[str, SavedVariablesWatcher] = {}
         self.partyledger_state = PartyLedgerState()
+        self._reputation_retry_paths: set[str] = set()
         self.tray: TrayApp | None = None
         self.client: ApiClient | None = None
         self._client_lock = threading.Lock()
@@ -1156,7 +1157,8 @@ class App:
                     continue
 
                 exported_at = payload.get("exportedAt", 0)
-                if not self.partyledger_state.is_newer(exported_at):
+                is_retry = pl_path in self._reputation_retry_paths
+                if not is_retry and not self.partyledger_state.is_newer(exported_at):
                     log.info(f"PartyLedger data not newer than last upload, skipping {pl_path}")
                     continue
 
@@ -1169,6 +1171,7 @@ class App:
 
                 result = client.upload_reputation(payload)
                 self.partyledger_state.update(exported_at)
+                self._reputation_retry_paths.discard(pl_path)
                 log.info(f"Reputation upload complete: {result}")
 
             except AuthError:
@@ -1189,6 +1192,7 @@ class App:
                 continue
             except Exception as e:
                 log.error(f"Reputation upload error for {pl_path}: {e}")
+                self._reputation_retry_paths.add(pl_path)
                 continue
 
     def _on_partyledger_change(self, filepath: str):
@@ -1197,6 +1201,10 @@ class App:
         if not self.config.auto_upload:
             log.info("Auto-upload disabled, skipping reputation upload")
             return
+        retry_paths = set(self._reputation_retry_paths) - {filepath}
+        for rp in retry_paths:
+            log.info(f"Retrying previously failed reputation upload: {rp}")
+            threading.Thread(target=self._do_reputation_upload, args=(rp,), daemon=True).start()
         threading.Thread(target=self._do_reputation_upload, args=(filepath,), daemon=True).start()
 
     def _do_settings(self):
