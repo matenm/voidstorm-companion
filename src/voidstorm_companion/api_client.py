@@ -1,3 +1,5 @@
+import time
+
 import requests
 
 _PLAYER_FIELDS = {"name", "roll", "rolled", "realm", "guild", "guildRank", "bet", "payout"}
@@ -6,9 +8,12 @@ _ROUND_FIELDS = {"number", "mode", "time", "players", "results", "pokerHand", "l
 _VALID_MODES = {
     "DIFFERENCE", "POT", "DEATHROLL", "ODDEVEN", "ELIMINATION", "LOTTERY",
     "POKER", "DOUBLEORNOTHING", "BLACKJACK", "COINFLIP", "WAR", "SLOTS",
-    "ROULETTE",
+    "ROULETTE", "OVERUNDER", "HOTPOTATO", "STREAKBET",
 }
 _MAX_WAGER = 1_000_000
+
+MAX_RETRIES = 3
+RETRY_BASE_DELAY = 2.0
 
 
 class UploadError(Exception):
@@ -23,6 +28,32 @@ class ApiClient:
     def __init__(self, api_url: str, token: str):
         self.api_url = api_url.rstrip("/")
         self.token = token
+
+    def _post_with_retry(self, url: str, json_data: dict) -> requests.Response:
+        """POST with exponential backoff retry on transient failures."""
+        last_exc: Exception | None = None
+        for attempt in range(MAX_RETRIES):
+            try:
+                resp = requests.post(
+                    url,
+                    json=json_data,
+                    headers=self._headers(),
+                    timeout=30,
+                )
+            except (requests.ConnectionError, requests.Timeout) as exc:
+                last_exc = exc
+                time.sleep(RETRY_BASE_DELAY * (2 ** attempt))
+                continue
+            if resp.status_code == 401:
+                raise AuthError("Unauthorized — token may be expired")
+            if 500 <= resp.status_code < 600:
+                last_exc = UploadError(f"Server error (HTTP {resp.status_code}): {resp.text}")
+                time.sleep(RETRY_BASE_DELAY * (2 ** attempt))
+                continue
+            if resp.status_code not in (200, 201) and resp.status_code >= 400:
+                raise UploadError(f"Upload failed (HTTP {resp.status_code}): {resp.text}")
+            return resp
+        raise UploadError(f"Upload failed after {MAX_RETRIES} attempts") from last_exc
 
     def prepare_payload(
         self,
@@ -145,22 +176,7 @@ class ApiClient:
         )
         if not payload["sessions"]:
             return {"imported": 0, "skipped": 0}
-        resp = requests.post(
-            f"{self.api_url}/api/gambling/upload",
-            json=payload,
-            headers={
-                "Authorization": f"Bearer {self.token}",
-                "Content-Type": "application/json",
-            },
-            timeout=30,
-        )
-
-        if resp.status_code == 401:
-            raise AuthError("Unauthorized — token may be expired")
-
-        if resp.status_code != 200:
-            raise UploadError(f"Upload failed (HTTP {resp.status_code}): {resp.text}")
-
+        resp = self._post_with_retry(f"{self.api_url}/api/gambling/upload", payload)
         data = resp.json()
         if "data" in data:
             return data["data"]
@@ -181,17 +197,14 @@ class ApiClient:
             AuthError: When the server responds with HTTP 401.
             UploadError: When the server responds with any other non-200/201 status.
         """
+        import re
         tournament_id = tournament_data.get("id", "")
-        resp = requests.post(
+        if not re.match(r'^[\w-]+$', tournament_id):
+            raise UploadError(f"Invalid tournament ID: {tournament_id!r}")
+        resp = self._post_with_retry(
             f"{self.api_url}/api/v1/gambling/tournaments/{tournament_id}/result",
-            json=tournament_data,
-            headers=self._headers(),
-            timeout=30,
+            tournament_data,
         )
-        if resp.status_code == 401:
-            raise AuthError("Unauthorized — token may be expired")
-        if resp.status_code not in (200, 201):
-            raise UploadError(f"Tournament upload failed (HTTP {resp.status_code}): {resp.text}")
         data = resp.json()
         if "data" in data:
             return data["data"]
@@ -212,16 +225,10 @@ class ApiClient:
             AuthError: When the server responds with HTTP 401.
             UploadError: When the server responds with any other non-200/201 status.
         """
-        resp = requests.post(
+        resp = self._post_with_retry(
             f"{self.api_url}/api/v1/gambling/audit",
-            json={"entries": audit_entries},
-            headers=self._headers(),
-            timeout=30,
+            {"entries": audit_entries},
         )
-        if resp.status_code == 401:
-            raise AuthError("Unauthorized — token may be expired")
-        if resp.status_code not in (200, 201):
-            raise UploadError(f"Audit upload failed (HTTP {resp.status_code}): {resp.text}")
         data = resp.json()
         if "data" in data:
             return data["data"]
@@ -242,16 +249,7 @@ class ApiClient:
             AuthError: When the server responds with HTTP 401.
             UploadError: When the server responds with any other non-200 status.
         """
-        resp = requests.post(
-            f"{self.api_url}/api/reputation/upload",
-            json=payload,
-            headers=self._headers(),
-            timeout=30,
-        )
-        if resp.status_code == 401:
-            raise AuthError("Unauthorized — token may be expired")
-        if resp.status_code not in (200, 201):
-            raise UploadError(f"Reputation upload failed (HTTP {resp.status_code}): {resp.text}")
+        resp = self._post_with_retry(f"{self.api_url}/api/reputation/upload", payload)
         data = resp.json()
         if "data" in data:
             return data["data"]

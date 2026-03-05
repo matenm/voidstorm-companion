@@ -9,7 +9,62 @@ from watchdog.events import (
     FileCreatedEvent,
 )
 
+try:
+    import psutil
+except ImportError:
+    psutil = None
+
 log = logging.getLogger("voidstorm-companion")
+
+WOW_PROCESS_NAMES = {"wow.exe", "wowclassic.exe", "wow-64.exe", "wowt.exe", "wowb.exe"}
+_POLL_INTERVAL = 5.0
+
+
+class WowProcessWatcher:
+    def __init__(self, on_exit, poll_interval: float = _POLL_INTERVAL):
+        self.on_exit = on_exit
+        self.poll_interval = poll_interval
+        self._stop_event = threading.Event()
+        self._thread: threading.Thread | None = None
+        self._was_running = False
+
+    @staticmethod
+    def _is_wow_running() -> bool:
+        if psutil is None:
+            return False
+        for proc in psutil.process_iter(["name"]):
+            try:
+                if proc.info["name"] and proc.info["name"].lower() in WOW_PROCESS_NAMES:
+                    return True
+            except (psutil.NoSuchProcess, psutil.AccessDenied):
+                continue
+        return False
+
+    def _poll_loop(self):
+        while not self._stop_event.is_set():
+            is_running = self._is_wow_running()
+            if self._was_running and not is_running:
+                log.info("WoW process exited — triggering upload")
+                try:
+                    self.on_exit()
+                except Exception:
+                    log.exception("WoW exit callback failed")
+            self._was_running = is_running
+            self._stop_event.wait(self.poll_interval)
+
+    def start(self):
+        if psutil is None:
+            log.warning("psutil not installed — WoW process watching disabled")
+            return
+        self._stop_event.clear()
+        self._was_running = self._is_wow_running()
+        self._thread = threading.Thread(target=self._poll_loop, daemon=True)
+        self._thread.start()
+
+    def stop(self):
+        self._stop_event.set()
+        if self._thread:
+            self._thread.join(timeout=2)
 
 
 class SavedVariablesWatcher:

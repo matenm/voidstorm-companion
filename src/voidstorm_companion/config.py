@@ -151,6 +151,7 @@ class Config:
         self.stats_webhook_url: str = ""
         self.stats_summary_threshold: int = 5
         self.league_webhook_url: str = ""
+        self.reputation_webhook_url: str = ""
         self.webhook_verbosity: str = "normal"
         self.partyledger_paths: list[str] = []
         self.keys_paths: list[str] = []
@@ -187,6 +188,7 @@ class Config:
                 self.stats_webhook_url = data.get("stats_webhook_url", "")
                 self.stats_summary_threshold = int(data.get("stats_summary_threshold", 5))
                 self.league_webhook_url = data.get("league_webhook_url", "")
+                self.reputation_webhook_url = data.get("reputation_webhook_url", "")
                 self.webhook_verbosity = data.get("webhook_verbosity", "normal")
                 self.partyledger_paths = data.get("partyledger_paths", [])
                 self.keys_paths = data.get("keys_paths", [])
@@ -210,6 +212,7 @@ class Config:
                     "stats_webhook_url": self.stats_webhook_url,
                     "stats_summary_threshold": self.stats_summary_threshold,
                     "league_webhook_url": self.league_webhook_url,
+                    "reputation_webhook_url": self.reputation_webhook_url,
                     "webhook_verbosity": self.webhook_verbosity,
                     "partyledger_paths": self.partyledger_paths,
                     "keys_paths": self.keys_paths,

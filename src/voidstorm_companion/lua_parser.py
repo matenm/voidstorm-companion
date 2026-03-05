@@ -43,8 +43,8 @@ def _normalize_exported_stats(raw: dict) -> dict:
             "totalWagered": int(lifetime.get("totalWagered", 0)),
             "totalWon": int(lifetime.get("totalWon", 0)),
             "netProfit": int(lifetime.get("netProfit", 0)),
-            "sessions": int(lifetime.get("sessions", 0)),
-            "playtime": int(lifetime.get("playtime", 0)),
+            "sessions": int(lifetime.get("sessionsPlayed", lifetime.get("sessions", 0))),
+            "playtime": int(lifetime.get("totalPlaytime", lifetime.get("playtime", 0))),
         }
 
     # modeBreakdown block
@@ -419,6 +419,27 @@ def parse_audit_log(data: dict) -> list[dict]:
         if isinstance(entry, dict):
             result.append(_normalize_audit_entry(entry))
 
+    return result
+
+
+def validate_savedvariables_meta(data: dict) -> dict | None:
+    """Check _meta block for version and session count integrity."""
+    meta = data.get("_meta")
+    if not isinstance(meta, dict):
+        return None
+    result = {
+        "version": str(meta.get("version", "")),
+        "lastSaveAt": int(meta.get("lastSaveAt", 0)),
+        "sessionCount": int(meta.get("sessionCount", 0)),
+    }
+    sessions = data.get("sessions")
+    if isinstance(sessions, (dict, list)):
+        actual = len(sessions) if isinstance(sessions, list) else len(sessions)
+        result["actualSessionCount"] = actual
+        result["consistent"] = actual == result["sessionCount"]
+    else:
+        result["actualSessionCount"] = 0
+        result["consistent"] = result["sessionCount"] == 0
     return result
 
 

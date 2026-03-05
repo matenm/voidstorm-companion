@@ -19,7 +19,7 @@ from voidstorm_companion.upload_history import UploadHistory
 from voidstorm_companion.api_client import ApiClient, AuthError
 from voidstorm_companion.stats_store import StatsStore
 from voidstorm_companion.auth_flow import authenticate, get_stored_token, clear_token
-from voidstorm_companion.file_watcher import SavedVariablesWatcher
+from voidstorm_companion.file_watcher import SavedVariablesWatcher, WowProcessWatcher
 from voidstorm_companion.tray import TrayApp
 from voidstorm_companion.window_manager import WindowManager
 from voidstorm_companion.group_sync import GroupSync
@@ -794,6 +794,7 @@ class App:
         self.summary_state = StatsSummaryState()
         self.watchers: dict[str, SavedVariablesWatcher] = {}
         self.partyledger_watchers: dict[str, SavedVariablesWatcher] = {}
+        self.wow_process_watcher: WowProcessWatcher | None = None
         self.partyledger_state = PartyLedgerState()
         self._reputation_retry_paths: set[str] = set()
         self.tray: TrayApp | None = None
@@ -1120,6 +1121,11 @@ class App:
     def _do_upload_async(self, path: str | None = None):
         threading.Thread(target=self._do_upload, args=(path,), daemon=True).start()
 
+    def _on_wow_exit(self):
+        log.info("WoW process exited — waiting for SavedVariables flush")
+        threading.Event().wait(3)
+        threading.Thread(target=self._do_upload, daemon=True).start()
+
     def _on_file_change(self, filepath: str):
         log.info(f"File change detected: {filepath}")
         if not self.config.auto_upload:
@@ -1173,6 +1179,7 @@ class App:
                 self.partyledger_state.update(exported_at)
                 self._reputation_retry_paths.discard(pl_path)
                 log.info(f"Reputation upload complete: {result}")
+                self._fire_reputation_webhook(encounters, tags)
 
             except AuthError:
                 if _is_retry:
@@ -1279,6 +1286,48 @@ class App:
         except Exception as e:
             log.warning("League webhook failed: %s", e)
 
+    def _fire_reputation_webhook(self, encounters: list[dict], tags: list[dict]):
+        import requests
+        url = self.config.reputation_webhook_url
+        if not url:
+            return
+        try:
+            tag_summary: dict[str, int] = {}
+            for t in tags:
+                label = t.get("tag", "unknown")
+                tag_summary[label] = tag_summary.get(label, 0) + 1
+
+            content_counts: dict[str, int] = {}
+            for enc in encounters:
+                ct = enc.get("contentType", "other")
+                content_counts[ct] = content_counts.get(ct, 0) + 1
+
+            desc_lines = [f"**{len(encounters)}** encounter(s), **{len(tags)}** tag(s) uploaded"]
+
+            if content_counts:
+                parts = [f"{v} {k}" for k, v in sorted(content_counts.items(), key=lambda x: -x[1])]
+                desc_lines.append("Content: " + ", ".join(parts))
+
+            if tag_summary:
+                parts = [f"{v}x {k}" for k, v in sorted(tag_summary.items(), key=lambda x: -x[1])[:8]]
+                desc_lines.append("Tags: " + ", ".join(parts))
+
+            embed = {
+                "title": "Reputation Data Uploaded",
+                "description": "\n".join(desc_lines),
+                "color": 0x9945FF,
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+            }
+
+            payload = {
+                "username": "Voidstorm Reputation",
+                "embeds": [embed],
+            }
+            requests.post(url, json=payload, timeout=10)
+            log.info("Reputation webhook fired: %d encounter(s), %d tag(s)", len(encounters), len(tags))
+        except Exception as e:
+            log.warning("Reputation webhook failed: %s", e)
+
     def _apply_autostart(self):
         set_autostart(self.config.start_with_windows, self.config.start_minimized)
 
@@ -1342,6 +1391,8 @@ class App:
             watcher.stop()
         for watcher in self.partyledger_watchers.values():
             watcher.stop()
+        if self.wow_process_watcher:
+            self.wow_process_watcher.stop()
         self.window_manager.stop()
         log.info("Shutting down")
 
@@ -1402,6 +1453,10 @@ class App:
             watcher.start()
             self.partyledger_watchers[pl_path] = watcher
             log.info(f"Watching PartyLedger: {pl_path}")
+
+        if self.client and self.watchers:
+            self.wow_process_watcher = WowProcessWatcher(self._on_wow_exit)
+            self.wow_process_watcher.start()
 
         self.tray = TrayApp(
             on_upload_now=self._do_upload_async,
