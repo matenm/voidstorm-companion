@@ -1595,13 +1595,13 @@ _lock_handle = None
 
 
 def _acquire_single_instance_lock() -> bool:
+    global _lock_handle
     from voidstorm_companion.config import CONFIG_DIR
     os.makedirs(CONFIG_DIR, exist_ok=True)
     lock_path = os.path.join(CONFIG_DIR, "companion.lock")
 
     if sys.platform == "win32":
         import msvcrt
-        global _lock_handle
         try:
             _lock_handle = open(lock_path, "w")
             msvcrt.locking(_lock_handle.fileno(), msvcrt.LK_NBLCK, 1)
@@ -1612,7 +1612,6 @@ def _acquire_single_instance_lock() -> bool:
             return False
     else:
         import fcntl
-        global _lock_handle
         try:
             _lock_handle = open(lock_path, "w")
             fcntl.flock(_lock_handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
