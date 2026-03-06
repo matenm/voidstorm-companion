@@ -404,7 +404,15 @@ class KeysCompanionWriter:
 
     @staticmethod
     def _esc(s: str) -> str:
-        return s.replace("\\", "\\\\").replace('"', '\\"').replace("\n", "\\n")
+        return (s
+            .replace('\\', '\\\\')
+            .replace('"', '\\"')
+            .replace('\n', '\\n')
+            .replace('\r', '\\r')
+            .replace('\t', '\\t')
+            .replace('\0', '\\0')
+            .replace('\a', '\\a')
+            .replace('\b', '\\b'))
 
 
 class KeysIntegration:

@@ -7,16 +7,24 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from voidstorm_companion.api_client import AuthError
+from .config import CONFIG_DIR
 
 if TYPE_CHECKING:
     from voidstorm_companion.api_client import ApiClient
 
-_DB_PATH = Path.home() / ".voidstorm" / "upload_queue.db"
+_DB_PATH = Path(CONFIG_DIR) / "upload_queue.db"
+_OLD_DB_PATH = Path.home() / ".voidstorm" / "upload_queue.db"
 _MAX_ATTEMPTS = 5
 
 
+def _migrate_queue_db():
+    if _OLD_DB_PATH.exists() and not _DB_PATH.exists():
+        _DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+        _OLD_DB_PATH.rename(_DB_PATH)
+
+
 def _connect(db_path: Path) -> sqlite3.Connection:
-    """Open (or create) the queue database and ensure the table exists."""
+    _migrate_queue_db()
     db_path.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(str(db_path))
     conn.execute(
