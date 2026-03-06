@@ -5,13 +5,9 @@ from voidstorm_companion.lua_parser import parse_savedvariables
 from voidstorm_companion.stats_store import StatsStore
 from voidstorm_companion.theme import BG, FG, ACCENT, BTN_BG, BTN_HOVER, SURFACE, GREEN, RED, app_icon_path
 
+from voidstorm_companion.constants import MODE_NAMES
+
 YELLOW = "#f9e2af"
-MODE_NAMES = {
-    "DIFFERENCE": "Difference", "POT": "Pot Roll", "DEATHROLL": "Deathroll",
-    "ODDEVEN": "Odd/Even", "ELIMINATION": "Elimination", "LOTTERY": "Lottery",
-    "POKER": "Poker", "DOUBLEORNOTHING": "Dbl or Nothing",
-    "BLACKJACK": "Blackjack", "COINFLIP": "Coin Flip", "WAR": "War",
-}
 
 
 def _relative_time(ts: int) -> str:
