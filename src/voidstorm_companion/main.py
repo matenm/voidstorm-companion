@@ -22,9 +22,10 @@ from voidstorm_companion.auth_flow import authenticate, get_stored_token, clear_
 from voidstorm_companion.file_watcher import SavedVariablesWatcher, WowProcessWatcher
 from voidstorm_companion.tray import TrayApp
 from voidstorm_companion.window_manager import WindowManager
-from voidstorm_companion.group_sync import GroupSync
+from voidstorm_companion.group_sync import GroupSync, _fire_windows_toast
 from voidstorm_companion.keys_integration import KeysIntegration
 from voidstorm_companion import analytics
+from voidstorm_companion.constants import MODE_NAMES, FORMAT_NAMES
 
 logging.basicConfig(
     level=logging.INFO,
@@ -42,22 +43,6 @@ def _derive_addon_path(sv_path: str) -> str | None:
         return candidate
     return None
 
-
-MODE_NAMES = {
-    "DIFFERENCE": "Difference", "POT": "Pot Roll", "DEATHROLL": "Deathroll",
-    "ODDEVEN": "Odd/Even", "ELIMINATION": "Elimination", "LOTTERY": "Lottery",
-    "POKER": "Poker", "DOUBLEORNOTHING": "Double or Nothing",
-    "BLACKJACK": "Blackjack", "COINFLIP": "Coin Flip", "WAR": "War",
-    "SLOTS": "Slots",
-    "ROULETTE": "Roulette",
-}
-
-FORMAT_NAMES = {
-    "SINGLE_ELIM": "Single Elimination",
-    "DOUBLE_ELIM": "Double Elimination",
-    "ROUND_ROBIN": "Round Robin",
-    "SWISS": "Swiss",
-}
 
 ACHIEVEMENT_DESCRIPTIONS = {
     "FIRST_BLOOD": ("Win your very first gambling session.", 10),
@@ -909,6 +894,76 @@ class App:
         except Exception as e:
             log.error(f"Failed to write reputation sync file: {e}")
 
+    def _write_elo_sync(self, elo_data: dict) -> None:
+        import tempfile
+        import time as _time
+        for sv_path in self.config.savedvariables_paths:
+            addon_dir = os.path.dirname(sv_path)
+            sync_path = os.path.join(addon_dir, "VoidstormEloSync.lua")
+            content = "VoidstormEloSync = {\n"
+            content += f'  elo = {elo_data.get("elo", 1000)},\n'
+            content += f'  tier = "{elo_data.get("tier", "silver")}",\n'
+            content += f'  peakElo = {elo_data.get("peakElo", 1000)},\n'
+            content += f'  gamesPlayed = {elo_data.get("gamesPlayed", 0)},\n'
+            content += f'  activeTitle = "{elo_data.get("activeTitle") or ""}",\n'
+            content += f'  timestamp = {int(_time.time())},\n'
+            content += "}\n"
+            dir_ = os.path.dirname(sync_path)
+            try:
+                os.makedirs(dir_, exist_ok=True)
+                fd, tmp_path = tempfile.mkstemp(dir=dir_, suffix=".tmp")
+                try:
+                    with os.fdopen(fd, "w", encoding="utf-8") as f:
+                        f.write(content)
+                    os.replace(tmp_path, sync_path)
+                    log.info("ELO sync written: %s", sync_path)
+                except BaseException:
+                    try:
+                        os.unlink(tmp_path)
+                    except OSError:
+                        pass
+                    raise
+            except Exception as e:
+                log.warning("Failed to write ELO sync file %s: %s", sync_path, e)
+
+    def _check_elo_changes(self, player_name: str) -> None:
+        if not self.client:
+            return
+        try:
+            elo_data = self.client.fetch_player_elo(player_name)
+            if not elo_data:
+                return
+
+            old_elo = self.stats.elo or 1000
+            old_tier = self.stats.tier or "silver"
+            new_elo = elo_data.get("elo", 1000)
+            new_tier = elo_data.get("tier", "silver")
+
+            self.stats.elo = new_elo
+            self.stats.tier = new_tier
+            self.stats._save()
+
+            self._write_elo_sync(elo_data)
+
+            delta = new_elo - old_elo
+            if delta != 0 and self.tray:
+                sign = "+" if delta > 0 else ""
+                self.tray.notify(
+                    "ELO Update",
+                    f"{sign}{delta} ELO ({old_elo} -> {new_elo})",
+                )
+
+            if new_tier != old_tier and self.tray:
+                direction = "reached" if new_elo > old_elo else "dropped to"
+                _fire_windows_toast(
+                    "Tier Change!",
+                    f"You {direction} {new_tier.title()} tier!",
+                )
+
+            self._update_tray_tooltip()
+        except Exception as e:
+            log.warning("ELO check failed: %s", e)
+
     def _ensure_auth(self) -> bool:
         token = get_stored_token()
         if token:
@@ -984,7 +1039,7 @@ class App:
         if self.tray:
             self.tray.set_status("Logged out", logged_in=False)
 
-    def _do_upload(self, path: str | None = None, _is_retry: bool = False):
+    def _do_upload(self, path: str | None = None, _is_retry: bool = False, _is_wow_exit: bool = False):
         paths = [path] if path else list(self.config.savedvariables_paths)
         if not paths:
             log.warning("No SavedVariables paths configured")
@@ -1010,7 +1065,13 @@ class App:
                 sessions, exported_stats, tournaments, achievements, leagues, audit_log = (
                     parse_savedvariables_full(sv_path)
                 )
-                self.stats.update(sessions)
+                local_player = ""
+                for _s in reversed(sessions):
+                    _host = _s.get("host", "")
+                    if _host:
+                        local_player = _host
+                        break
+                self.stats.update(sessions, local_player=local_player)
                 new_sessions = self.diff.filter_new(sessions)
 
                 if not new_sessions:
@@ -1032,6 +1093,17 @@ class App:
                     challenges=None,  # challenges are uploaded via audit endpoint
                     audit_log=audit_log if audit_log else None,
                 )
+
+                new_titles = result.get("newTitles", [])
+                for title in new_titles:
+                    _fire_windows_toast("Title Unlocked!", f'You earned: "{title}"')
+
+                if local_player:
+                    threading.Thread(
+                        target=self._check_elo_changes,
+                        args=(local_player,),
+                        daemon=True,
+                    ).start()
 
                 # Upload audit log to dedicated endpoint when present
                 if audit_log:
@@ -1094,6 +1166,16 @@ class App:
         self._update_tray_tooltip()
         if total_imported and self.tray:
             self.tray.notify("Voidstorm Companion", f"Uploaded {total_imported} session(s)")
+        if _is_wow_exit and total_imported and total_imported > 0 and self.tray:
+            w = self.stats.session_wins
+            l = self.stats.session_losses
+            net = self.stats.session_net_gold
+            sign = "+" if net >= 0 else ""
+            _fire_windows_toast(
+                "Session Recap",
+                f"{w}W-{l}L, {sign}{net:,}g",
+            )
+            self.stats.reset_session_counters()
         if total_imported and self.config.webhook_url:
             # Determine whether to post a stats summary alongside session embeds
             self.summary_state.add_sessions(total_imported)
@@ -1124,7 +1206,7 @@ class App:
     def _on_wow_exit(self):
         log.info("WoW process exited — waiting for SavedVariables flush")
         threading.Event().wait(3)
-        threading.Thread(target=self._do_upload, daemon=True).start()
+        threading.Thread(target=self._do_upload, kwargs={"_is_wow_exit": True}, daemon=True).start()
 
     def _on_file_change(self, filepath: str):
         log.info(f"File change detected: {filepath}")
@@ -1341,7 +1423,13 @@ class App:
             last_str = dt.strftime("%m/%d %H:%M")
         else:
             last_str = None
-        self.tray.set_tooltip(total, last_str, watching=bool(self.watchers))
+        self.tray.set_tooltip(
+            total,
+            last_str,
+            watching=bool(self.watchers),
+            elo=self.stats.elo,
+            tier=self.stats.tier,
+        )
 
     def _check_update(self):
         from voidstorm_companion.updater import check_for_update

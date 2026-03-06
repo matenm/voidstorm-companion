@@ -265,6 +265,7 @@ class ApiClient:
         return {
             "Authorization": f"Bearer {self.token}",
             "Content-Type": "application/json",
+            "X-Client-Version": "voidstorm-companion/1.0.0",
         }
 
     def get_characters(self) -> list[dict]:
@@ -417,6 +418,23 @@ class ApiClient:
             raise AuthError("Unauthorized -- token may be expired")
         if resp.status_code not in (200, 201):
             raise UploadError(f"Keys upload failed (HTTP {resp.status_code}): {resp.text}")
+        data = resp.json()
+        if "data" in data:
+            return data["data"]
+        return data
+
+    def fetch_player_elo(self, player_name: str) -> dict:
+        resp = requests.get(
+            f"{self.api_url}/api/v1/gambling/elo/{requests.utils.quote(player_name)}",
+            headers=self._headers(),
+            timeout=10,
+        )
+        if resp.status_code == 401:
+            raise AuthError("Unauthorized -- token may be expired")
+        if resp.status_code == 404:
+            return {}
+        if resp.status_code != 200:
+            raise UploadError(f"ELO fetch failed (HTTP {resp.status_code}): {resp.text}")
         data = resp.json()
         if "data" in data:
             return data["data"]

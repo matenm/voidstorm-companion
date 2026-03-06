@@ -117,7 +117,8 @@ class TrayApp:
             except OSError:
                 pass
 
-    def set_tooltip(self, total_uploaded: int, last_upload: str | None, watching: bool = False):
+    def set_tooltip(self, total_uploaded: int, last_upload: str | None, watching: bool = False,
+                    elo: int | None = None, tier: str | None = None):
         if not self.icon:
             return
         lines = ["Voidstorm Companion"]
@@ -125,6 +126,9 @@ class TrayApp:
             lines.append("Watching for changes")
         lines.append(f"Uploaded: {total_uploaded} sessions")
         lines.append(f"Last: {last_upload}" if last_upload else "Last: Never")
+        if elo is not None:
+            tier_str = f" ({tier.title()})" if tier else ""
+            lines.append(f"ELO: {elo}{tier_str}")
         try:
             self.icon.title = "\n".join(lines)
         except OSError:

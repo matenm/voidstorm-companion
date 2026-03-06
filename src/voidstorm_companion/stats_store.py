@@ -23,6 +23,11 @@ class StatsStore:
         self.mode_wins: dict[str, dict[str, int]] = {}
         self.mode_losses: dict[str, dict[str, int]] = {}
         self.h2h: dict[str, dict[str, int]] = {}
+        self.elo: int | None = None
+        self.tier: str | None = None
+        self.session_wins: int = 0
+        self.session_losses: int = 0
+        self.session_net_gold: int = 0
         self._seen_ids: dict[str, None] = {}
         self._lock = threading.Lock()
         self._load()
@@ -47,6 +52,13 @@ class StatsStore:
                 self.mode_losses = data.get("mode_losses", {})
                 self.h2h = data.get("h2h", {})
                 self._seen_ids = dict.fromkeys(data.get("session_ids_seen", []))
+                elo_val = data.get("elo")
+                self.elo = int(elo_val) if elo_val is not None else None
+                tier_val = data.get("tier")
+                self.tier = str(tier_val) if tier_val is not None else None
+                self.session_wins = data.get("session_wins", 0)
+                self.session_losses = data.get("session_losses", 0)
+                self.session_net_gold = data.get("session_net_gold", 0)
             except (json.JSONDecodeError, OSError):
                 pass
 
@@ -72,6 +84,11 @@ class StatsStore:
                     "mode_wins": self.mode_wins,
                     "mode_losses": self.mode_losses,
                     "h2h": self.h2h,
+                    "elo": self.elo,
+                    "tier": self.tier,
+                    "session_wins": self.session_wins,
+                    "session_losses": self.session_losses,
+                    "session_net_gold": self.session_net_gold,
                     "session_ids_seen": list(self._seen_ids.keys())[-MAX_SEEN_IDS:],
                 }, f, indent=2)
             os.replace(tmp_path, self.stats_path)
@@ -94,7 +111,7 @@ class StatsStore:
         elif s < 0:
             self.worst_streaks[name] = min(self.worst_streaks.get(name, 0), s)
 
-    def update(self, sessions: list[dict]):
+    def update(self, sessions: list[dict], local_player: str = ""):
         with self._lock:
             for s in sessions:
                 sid = s.get("id")
@@ -113,6 +130,13 @@ class StatsStore:
                         name = p.get("name")
                         if name:
                             self.players[name] = self.players.get(name, 0) + 1
+                        if local_player and name == local_player:
+                            payout = int(p.get("payout", 0))
+                            bet = int(p.get("bet", 0))
+                            if payout > 0:
+                                self.session_net_gold += payout - bet
+                            elif bet > 0:
+                                self.session_net_gold -= bet
                     results = r.get("results", {})
                     winner = results.get("winner")
                     loser = results.get("loser")
@@ -127,12 +151,16 @@ class StatsStore:
                         if mode not in self.mode_wins:
                             self.mode_wins[mode] = {}
                         self.mode_wins[mode][winner] = self.mode_wins[mode].get(winner, 0) + 1
+                        if local_player and winner == local_player:
+                            self.session_wins += 1
                     if loser:
                         self.losses[loser] = self.losses.get(loser, 0) + 1
                         self._update_streak(loser, False)
                         if mode not in self.mode_losses:
                             self.mode_losses[mode] = {}
                         self.mode_losses[mode][loser] = self.mode_losses[mode].get(loser, 0) + 1
+                        if local_player and loser == local_player:
+                            self.session_losses += 1
                     if winner and loser:
                         key = f"{winner} vs {loser}"
                         self.h2h[key] = self.h2h.get(key, 0) + 1
@@ -150,3 +178,10 @@ class StatsStore:
 
     def top_rivalries(self, limit: int = 5) -> list[tuple[str, int]]:
         return sorted(self.h2h.items(), key=lambda x: -x[1])[:limit]
+
+    def reset_session_counters(self):
+        with self._lock:
+            self.session_wins = 0
+            self.session_losses = 0
+            self.session_net_gold = 0
+            self._save()
