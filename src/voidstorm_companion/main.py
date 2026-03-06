@@ -1,6 +1,7 @@
 import json
 import logging
 import os
+import sys
 import threading
 import webbrowser
 from datetime import datetime, timezone
@@ -1590,12 +1591,48 @@ class App:
         self.tray.run()
 
 
+_lock_handle = None
+
+
+def _acquire_single_instance_lock() -> bool:
+    from voidstorm_companion.config import CONFIG_DIR
+    os.makedirs(CONFIG_DIR, exist_ok=True)
+    lock_path = os.path.join(CONFIG_DIR, "companion.lock")
+
+    if sys.platform == "win32":
+        import msvcrt
+        global _lock_handle
+        try:
+            _lock_handle = open(lock_path, "w")
+            msvcrt.locking(_lock_handle.fileno(), msvcrt.LK_NBLCK, 1)
+            _lock_handle.write(str(os.getpid()))
+            _lock_handle.flush()
+            return True
+        except (OSError, IOError):
+            return False
+    else:
+        import fcntl
+        global _lock_handle
+        try:
+            _lock_handle = open(lock_path, "w")
+            fcntl.flock(_lock_handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            _lock_handle.write(str(os.getpid()))
+            _lock_handle.flush()
+            return True
+        except (OSError, IOError):
+            return False
+
+
 def main():
     import argparse
     parser = argparse.ArgumentParser(description="Voidstorm Companion")
     parser.add_argument("--dev", action="store_true", help="Use development API server (dev.voidstorm.cc)")
     parser.add_argument("--minimized", action="store_true", help="Start minimized to tray")
     args = parser.parse_args()
+
+    if not _acquire_single_instance_lock():
+        print("Voidstorm Companion is already running.")
+        sys.exit(0)
 
     app = App()
 
