@@ -1,3 +1,4 @@
+import re
 import time
 
 import requests
@@ -14,6 +15,13 @@ _MAX_WAGER = 1_000_000
 
 MAX_RETRIES = 3
 RETRY_BASE_DELAY = 2.0
+
+_ID_PATTERN = re.compile(r'^[\w-]+$')
+
+
+def _validate_id(value: str, label: str = "id") -> None:
+    if not _ID_PATTERN.match(value):
+        raise ValueError(f"Invalid {label}: {value!r}")
 
 
 class UploadError(Exception):
@@ -197,10 +205,8 @@ class ApiClient:
             AuthError: When the server responds with HTTP 401.
             UploadError: When the server responds with any other non-200/201 status.
         """
-        import re
         tournament_id = tournament_data.get("id", "")
-        if not re.match(r'^[\w-]+$', tournament_id):
-            raise UploadError(f"Invalid tournament ID: {tournament_id!r}")
+        _validate_id(tournament_id, "tournament_id")
         resp = self._post_with_retry(
             f"{self.api_url}/api/v1/gambling/tournaments/{tournament_id}/result",
             tournament_data,
@@ -288,6 +294,7 @@ class ApiClient:
         return resp.json().get("data", {})
 
     def signup_group(self, group_id: str, payload: dict) -> dict:
+        _validate_id(group_id, "group_id")
         resp = requests.post(
             f"{self.api_url}/api/groups/{group_id}/signup",
             json=payload,
@@ -301,6 +308,7 @@ class ApiClient:
         return resp.json().get("data", {})
 
     def withdraw_group(self, group_id: str) -> dict:
+        _validate_id(group_id, "group_id")
         resp = requests.delete(
             f"{self.api_url}/api/groups/{group_id}/signup",
             headers=self._headers(),
@@ -313,6 +321,8 @@ class ApiClient:
         return resp.json().get("data", {})
 
     def accept_signup(self, group_id: str, signup_id: str) -> dict:
+        _validate_id(group_id, "group_id")
+        _validate_id(signup_id, "signup_id")
         resp = requests.patch(
             f"{self.api_url}/api/groups/{group_id}/signup/{signup_id}",
             json={"status": "ACCEPTED"},
@@ -326,6 +336,8 @@ class ApiClient:
         return resp.json().get("data", {})
 
     def decline_signup(self, group_id: str, signup_id: str) -> dict:
+        _validate_id(group_id, "group_id")
+        _validate_id(signup_id, "signup_id")
         resp = requests.patch(
             f"{self.api_url}/api/groups/{group_id}/signup/{signup_id}",
             json={"status": "DECLINED"},
@@ -339,6 +351,7 @@ class ApiClient:
         return resp.json().get("data", {})
 
     def start_group(self, group_id: str) -> dict:
+        _validate_id(group_id, "group_id")
         resp = requests.patch(
             f"{self.api_url}/api/groups/{group_id}/start",
             headers=self._headers(),
@@ -351,6 +364,7 @@ class ApiClient:
         return resp.json().get("data", {})
 
     def cancel_group(self, group_id: str) -> dict:
+        _validate_id(group_id, "group_id")
         resp = requests.patch(
             f"{self.api_url}/api/groups/{group_id}/cancel",
             headers=self._headers(),
@@ -363,6 +377,7 @@ class ApiClient:
         return resp.json().get("data", {})
 
     def lock_group(self, group_id: str) -> dict:
+        _validate_id(group_id, "group_id")
         resp = requests.patch(
             f"{self.api_url}/api/groups/{group_id}/lock",
             headers=self._headers(),
