@@ -786,6 +786,7 @@ class App:
         self.tray: TrayApp | None = None
         self.client: ApiClient | None = None
         self._client_lock = threading.Lock()
+        self._update_lock = threading.Lock()
         self.window_manager = WindowManager()
         self._group_sync: GroupSync | None = None
         self._keys_integration: KeysIntegration | None = None
@@ -1442,30 +1443,36 @@ class App:
             self.tray.set_update(info)
 
     def _do_update(self):
-        if not self.tray or not self.tray.update_info:
-            return
-
-        download_url = self.tray.update_info.get("download_url")
-        if not download_url:
-            self._open_release_page()
-            return
-
         try:
-            from voidstorm_companion.updater import download_update, apply_update
+            if not self.tray or not self.tray.update_info:
+                return
 
-            analytics.track("update_started")
-            self.tray.set_status("Downloading update...")
-            new_exe = download_update(download_url)
+            download_url = self.tray.update_info.get("download_url")
+            if not download_url:
+                self._open_release_page()
+                return
 
-            self.tray.set_status("Installing update...")
-            apply_update(new_exe)
+            try:
+                from voidstorm_companion.updater import download_update, apply_update
 
-            self.tray.quit()
-        except Exception as e:
-            log.error(f"Auto-update failed: {e}")
-            self._open_release_page()
+                analytics.track("update_started")
+                self.tray.set_status("Downloading update...")
+                checksum_url = self.tray.update_info.get("checksum_url")
+                new_exe = download_update(download_url, checksum_url=checksum_url)
+
+                self.tray.set_status("Installing update...")
+                apply_update(new_exe)
+
+                self.tray.quit()
+            except Exception as e:
+                log.error(f"Auto-update failed: {e}")
+                self._open_release_page()
+        finally:
+            self._update_lock.release()
 
     def _do_update_async(self):
+        if not self._update_lock.acquire(blocking=False):
+            return
         threading.Thread(target=self._do_update, daemon=True).start()
 
     def _open_release_page(self):
