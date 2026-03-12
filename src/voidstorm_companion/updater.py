@@ -16,11 +16,15 @@ UPDATE_DIR_PREFIX = "_voidstorm_update"
 
 
 def _parse_version(tag: str) -> tuple[int, ...]:
-    clean = tag.lstrip("v").split("-")[0]
+    stripped = tag.lstrip("v")
+    parts = stripped.split("-", 1)
+    clean = parts[0]
+    is_prerelease = len(parts) > 1
     try:
-        return tuple(int(x) for x in clean.split("."))
+        numeric = tuple(int(x) for x in clean.split("."))
     except ValueError:
         return (0,)
+    return numeric + (0,) if is_prerelease else numeric + (1,)
 
 
 def _find_portable_zip_url(assets: list[dict]) -> str | None:

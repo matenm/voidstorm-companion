@@ -17,7 +17,7 @@ FIXTURE_PATH = os.path.join(os.path.dirname(__file__), "fixtures", "sample_saved
 ALL_MODES = {
     "DIFFERENCE", "POT", "DEATHROLL", "ODDEVEN", "ELIMINATION",
     "LOTTERY", "POKER", "DOUBLEORNOTHING", "BLACKJACK", "COINFLIP", "WAR",
-    "SLOTS", "ROULETTE",
+    "SLOTS", "ROULETTE", "HOTPOTATO", "STREAKBET", "OVERUNDER",
 }
 
 
@@ -34,7 +34,7 @@ def _by_mode(mode: str):
 
 def test_parse_returns_all_13_modes():
     sessions = _sessions()
-    assert len(sessions) == 15
+    assert len(sessions) == 18
     modes_found = {s["mode"] for s in sessions}
     assert modes_found == ALL_MODES
 
@@ -273,7 +273,7 @@ def _exported_stats():
 
 def test_parse_full_returns_sessions_and_exported_stats():
     sessions, stats, tournaments, achievements, leagues, audit_log = parse_savedvariables_full(FIXTURE_PATH)
-    assert len(sessions) == 15
+    assert len(sessions) == 18
     assert isinstance(stats, dict)
     assert stats != {}
 
@@ -377,7 +377,7 @@ def test_parse_full_no_exported_stats_returns_empty_dict():
 def test_parse_savedvariables_backward_compat():
     """parse_savedvariables must still return only sessions (no regression)."""
     sessions = parse_savedvariables(FIXTURE_PATH)
-    assert len(sessions) == 15
+    assert len(sessions) == 18
 
 
 # ---------------------------------------------------------------------------
@@ -1066,7 +1066,7 @@ def test_parse_savedvariables_still_returns_sessions_only():
     """parse_savedvariables() must still return just the list of sessions."""
     sessions = parse_savedvariables(FIXTURE_PATH)
     assert isinstance(sessions, list)
-    assert len(sessions) == 15
+    assert len(sessions) == 18
 
 
 def test_old_savedvars_without_leagues_challenges_auditlog():

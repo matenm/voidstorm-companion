@@ -928,10 +928,12 @@ class App:
                 log.warning("Failed to write ELO sync file %s: %s", sync_path, e)
 
     def _check_elo_changes(self, player_name: str) -> None:
-        if not self.client:
+        with self._client_lock:
+            client = self.client
+        if not client:
             return
         try:
-            elo_data = self.client.fetch_player_elo(player_name)
+            elo_data = client.fetch_player_elo(player_name)
             if not elo_data:
                 return
 

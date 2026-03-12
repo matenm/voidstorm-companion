@@ -70,12 +70,15 @@ def _normalize_exported_stats(raw: dict) -> dict:
         normalized_recent = []
         for entry in recent:
             if isinstance(entry, dict):
-                normalized_recent.append({
-                    "mode": str(entry.get("mode", "")),
-                    "result": str(entry.get("result", "")),
-                    "netProfit": int(entry.get("netProfit", 0)),
-                    "timestamp": int(entry.get("timestamp", 0)),
-                })
+                try:
+                    normalized_recent.append({
+                        "mode": str(entry.get("mode", "")),
+                        "result": str(entry.get("result", "")),
+                        "netProfit": int(entry.get("netProfit", 0)),
+                        "timestamp": int(entry.get("timestamp", 0)),
+                    })
+                except (TypeError, ValueError, IndexError):
+                    pass
         result["recentSessions"] = normalized_recent
 
     # rivals list
@@ -86,12 +89,15 @@ def _normalize_exported_stats(raw: dict) -> dict:
         normalized_rivals = []
         for rival in rivals:
             if isinstance(rival, dict):
-                normalized_rivals.append({
-                    "name": str(rival.get("name", "")),
-                    "wins": int(rival.get("wins", 0)),
-                    "losses": int(rival.get("losses", 0)),
-                    "netGold": int(rival.get("netGold", 0)),
-                })
+                try:
+                    normalized_rivals.append({
+                        "name": str(rival.get("name", "")),
+                        "wins": int(rival.get("wins", 0)),
+                        "losses": int(rival.get("losses", 0)),
+                        "netGold": int(rival.get("netGold", 0)),
+                    })
+                except (TypeError, ValueError, IndexError):
+                    pass
         result["rivals"] = normalized_rivals
 
     return result

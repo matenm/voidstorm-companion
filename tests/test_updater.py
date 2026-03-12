@@ -16,9 +16,10 @@ from voidstorm_companion.updater import (
 
 
 def test_parse_version_basic():
-    assert _parse_version("v1.2.3") == (1, 2, 3)
-    assert _parse_version("1.0.0") == (1, 0, 0)
-    assert _parse_version("v2.0.0-beta.1") == (2, 0, 0)
+    assert _parse_version("v1.2.3") == (1, 2, 3, 1)
+    assert _parse_version("1.0.0") == (1, 0, 0, 1)
+    assert _parse_version("v2.0.0-beta.1") == (2, 0, 0, 0)
+    assert _parse_version("v1.0.0-alpha") < _parse_version("v1.0.0")
 
 
 def test_parse_version_invalid():
